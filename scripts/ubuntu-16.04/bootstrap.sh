@@ -20,7 +20,7 @@ GCC_VERSION=14.2.0
 CMAKE_VERSION=3.31.7
 PYTHON_VERSION=3.12.11
 NINJA_VERSION=1.12.1
-SWIG_VERSION=4.3.0
+SWIG_VERSION=4.3.1
 ZLIB_VERSION=1.3.1
 ZSTD_VERSION=1.5.7
 LIBXML2_VERSION=2.13.8
@@ -254,8 +254,8 @@ build_swig() {
     log "Building SWIG ${SWIG_VERSION}..."
 
     local tarball="${DOWNLOAD_DIR}/swig-${SWIG_VERSION}.tar.gz"
-    # Use release tarball (includes pre-generated configure), NOT GitHub archive
-    download "https://github.com/swig/swig/releases/download/v${SWIG_VERSION}/swig-${SWIG_VERSION}.tar.gz" "${tarball}"
+    # SWIG publishes release tarballs on SourceForge (no GitHub Releases)
+    download "https://sourceforge.net/projects/swig/files/swig/swig-${SWIG_VERSION}/swig-${SWIG_VERSION}.tar.gz/download" "${tarball}"
 
     cd "${BUILD_DIR}"
     tar xf "${tarball}"
