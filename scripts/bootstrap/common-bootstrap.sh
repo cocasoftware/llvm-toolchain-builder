@@ -218,20 +218,20 @@ build_swig() {
 }
 
 # -----------------------------------------------------------------------------
-# 6. Install nanobind (needed for MLIR Python bindings)
+# 6. Install Python packages for MLIR bindings (pybind11 + nanobind)
 # -----------------------------------------------------------------------------
-install_nanobind() {
-    if is_built "nanobind"; then
-        log "nanobind already installed, skipping"
+install_python_packages() {
+    if is_built "python-packages"; then
+        log "Python packages already installed, skipping"
         return
     fi
-    log "Installing nanobind via pip..."
+    log "Installing pybind11 + nanobind via pip..."
 
     "${BOOTSTRAP_PREFIX}/bin/python3" -m pip install --upgrade pip
-    "${BOOTSTRAP_PREFIX}/bin/python3" -m pip install nanobind
+    "${BOOTSTRAP_PREFIX}/bin/python3" -m pip install pybind11 nanobind
 
-    mark_built "nanobind"
-    log "nanobind installed"
+    mark_built "python-packages"
+    log "pybind11 + nanobind installed"
 }
 
 # -----------------------------------------------------------------------------
@@ -490,8 +490,8 @@ run_bootstrap() {
     # SWIG needs PCRE2 (built in-tree) and Python
     build_swig
 
-    # nanobind for MLIR Python bindings
-    install_nanobind
+    # pybind11 + nanobind for MLIR Python bindings
+    install_python_packages
 
     log "Bootstrap complete! All tools installed to ${BOOTSTRAP_PREFIX}"
 
