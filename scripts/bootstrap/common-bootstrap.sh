@@ -399,11 +399,18 @@ build_xz() {
     tar xf "${tarball}"
     cd "xz-${XZ_VERSION}"
 
+    local xz_extra_args=""
+    # Ubuntu 16.04 aarch64 headers lack HWCAP_CRC32 (needs glibc 2.27+)
+    if [[ "$(uname -m)" == "aarch64" ]]; then
+        xz_extra_args="-DHAVE_ARM64_CRC32=OFF"
+    fi
+
     cmake -G Ninja -B build \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="${BOOTSTRAP_PREFIX}" \
         -DBUILD_SHARED_LIBS=ON \
-        -DBUILD_TESTING=OFF
+        -DBUILD_TESTING=OFF \
+        ${xz_extra_args}
 
     cmake --build build -j"${NPROC}"
     cmake --install build
