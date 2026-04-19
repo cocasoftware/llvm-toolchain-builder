@@ -177,7 +177,7 @@ jobs:
             bash -c '
               apt-get update -qq
               DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-                ca-certificates curl file patchelf xz-utils git binutils
+                ca-certificates curl file patchelf xz-utils git binutils libc6-dev
               export PATH="/opt/bootstrap/bin:${PATH}"
               export LD_LIBRARY_PATH="/opt/bootstrap/lib64:/opt/bootstrap/lib"
               bash /src/scripts/linux-arm64/build-llvm-stage1.sh
