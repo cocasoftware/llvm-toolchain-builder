@@ -27,6 +27,14 @@
 generate_cmake_args() {
     CMAKE_ARGS=()
 
+    # Host triple for per-target runtime directory paths
+    local LLVM_HOST_TRIPLE
+    case "${PLATFORM}" in
+        linux-x64)   LLVM_HOST_TRIPLE="x86_64-unknown-linux-gnu" ;;
+        linux-arm64) LLVM_HOST_TRIPLE="aarch64-unknown-linux-gnu" ;;
+        *)           LLVM_HOST_TRIPLE="x86_64-unknown-linux-gnu" ;;
+    esac
+
     # ── Compiler selection ──────────────────────────────────────────────
     if [[ "${STAGE}" == "stage1" ]]; then
         CMAKE_ARGS+=(
@@ -49,8 +57,8 @@ generate_cmake_args() {
             "-DCMAKE_OBJDUMP=${STAGE1_PREFIX}/bin/llvm-objdump"
             "-DCMAKE_C_FLAGS=-w"
             "-DCMAKE_CXX_FLAGS=-stdlib=libc++ -w"
-            "-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++ '-Wl,-rpath,\$ORIGIN/../lib' -Wl,-rpath,${BOOTSTRAP_PREFIX}/lib64 -Wl,-rpath,${BOOTSTRAP_PREFIX}/lib"
-            "-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++ '-Wl,-rpath,\$ORIGIN/../lib' -Wl,-rpath,${BOOTSTRAP_PREFIX}/lib64 -Wl,-rpath,${BOOTSTRAP_PREFIX}/lib"
+            "-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++ '-Wl,-rpath,\$ORIGIN/../lib' -Wl,-rpath,${STAGE1_PREFIX}/lib -Wl,-rpath,${STAGE1_PREFIX}/lib/${LLVM_HOST_TRIPLE} -Wl,-rpath,${BOOTSTRAP_PREFIX}/lib64 -Wl,-rpath,${BOOTSTRAP_PREFIX}/lib"
+            "-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++ '-Wl,-rpath,\$ORIGIN/../lib' -Wl,-rpath,${STAGE1_PREFIX}/lib -Wl,-rpath,${STAGE1_PREFIX}/lib/${LLVM_HOST_TRIPLE} -Wl,-rpath,${BOOTSTRAP_PREFIX}/lib64 -Wl,-rpath,${BOOTSTRAP_PREFIX}/lib"
         )
     fi
 

@@ -28,7 +28,7 @@ export PLATFORM="linux-arm64"
 export STAGE="stage2"
 
 export PATH="${STAGE1_PREFIX}/bin:${BOOTSTRAP_PREFIX}/bin:${PATH}"
-export LD_LIBRARY_PATH="${STAGE1_PREFIX}/lib:${BOOTSTRAP_PREFIX}/lib64:${BOOTSTRAP_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="${STAGE1_PREFIX}/lib:${STAGE1_PREFIX}/lib/aarch64-unknown-linux-gnu:${BOOTSTRAP_PREFIX}/lib64:${BOOTSTRAP_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
 
 source "${COMMON_DIR}/versions.sh"
 source "${COMMON_DIR}/source.sh"
