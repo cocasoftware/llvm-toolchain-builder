@@ -1,10 +1,10 @@
 name: Build LLVM Toolchain (Windows x64)
-# Builds a portable, self-contained LLVM toolchain on Windows using Visual
-# Studio 2022's MSVC (cl.exe) + LLD as the host compiler. Produces a zip
-# that works on any Windows 10/11 x64 machine — no Visual Studio required.
+# Two-stage build of a portable LLVM toolchain on Windows:
+#   Stage 1: MSVC cl.exe builds a minimal LLVM (cached, artifact: *-msvc)
+#   Stage 2: Stage 1 clang-cl rebuilds LLVM with libc++ (artifact: final)
 #
-# Two parallel variant jobs: main (full LLVM) and p2996 (Bloomberg reflection).
-# Both go through a portability verification step.
+# Both main and p2996 variants go through Stage 1 → Stage 2 → Verify.
+# Stage 1 is cached based on build-llvm.ps1 hash to avoid rebuilds.
 
 on:
   workflow_dispatch:
@@ -35,10 +35,89 @@ concurrency:
 
 jobs:
   # ===========================================================================
-  # Job 1: Build LLVM (main variant) — full-featured toolchain
+  # Job 1: Stage 1 — MSVC-built LLVM (cached, used as compiler for Stage 2)
   # ===========================================================================
-  build-main:
-    name: LLVM Build (main)
+  stage1-main:
+    name: Stage 1 (main, MSVC)
+    runs-on: windows-2022
+    timeout-minutes: 540
+    env:
+      VARIANT: main
+      INSTALL_PREFIX: 'C:\stage1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Stage 1
+        id: cache-stage1
+        uses: actions/cache@v4
+        with:
+          path: C:\stage1-archive
+          key: win-x64-stage1-v1-llvm${{ env.LLVM_VERSION }}-${{ hashFiles('scripts/windows-x64/build-llvm.ps1') }}
+
+      - name: Setup Python 3.14
+        if: steps.cache-stage1.outputs.cache-hit != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install Python deps
+        if: steps.cache-stage1.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: python -m pip install pybind11 nanobind
+
+      - name: Free disk space
+        if: steps.cache-stage1.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $dirs = @(
+            'C:\Android', 'C:\SeleniumWebDrivers',
+            "${env:JAVA_HOME_8_X64}", "${env:JAVA_HOME_11_X64}",
+            "${env:JAVA_HOME_17_X64}", "${env:JAVA_HOME_25_X64}",
+            'C:\Program Files\dotnet\sdk',
+            'C:\Program Files (x86)\Microsoft SDKs\Azure',
+            'C:\hostedtoolcache\Ruby', 'C:\hostedtoolcache\go',
+            'C:\hostedtoolcache\CodeQL', 'C:\Miniconda'
+          )
+          foreach ($d in $dirs) {
+            if (Test-Path $d) {
+              Write-Host "Removing $d ..."
+              Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+      - name: Build Stage 1
+        if: steps.cache-stage1.outputs.cache-hit != 'true'
+        shell: pwsh
+        timeout-minutes: 540
+        env:
+          NPROC: '4'
+          PYTHON_DIR: ${{ env.pythonLocation }}
+          SKIP_ARCHIVE: 'true'
+        run: |
+          & "${{ github.workspace }}\scripts\windows-x64\build-llvm.ps1"
+
+      - name: Archive Stage 1 for cache
+        if: steps.cache-stage1.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path C:\stage1-archive -Force | Out-Null
+          & 7z a -tzip -mx=3 -mmt=on C:\stage1-archive\stage1.zip C:\stage1 | Select-Object -Last 3
+
+      - name: Upload Stage 1 artifact (MSVC build)
+        uses: actions/upload-artifact@v4
+        with:
+          name: coca-toolchain-win-x86_64-msvc
+          path: C:\stage1-archive\stage1.zip
+          retention-days: 14
+          if-no-files-found: error
+
+  # ===========================================================================
+  # Job 2: Stage 2 — clang-cl + libc++ full-featured toolchain
+  # ===========================================================================
+  stage2-main:
+    name: Stage 2 (main, libc++)
+    needs: stage1-main
     runs-on: windows-2022
     timeout-minutes: 540
     env:
@@ -57,27 +136,17 @@ jobs:
         shell: pwsh
         run: python -m pip install pybind11 nanobind
 
-      - name: Disk space report (pre-build)
-        shell: pwsh
-        run: Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}}, @{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}}
-
       - name: Free disk space
         shell: pwsh
         run: |
-          # Remove large unused components to maximize build space
           $dirs = @(
-            'C:\Android',
-            'C:\SeleniumWebDrivers',
-            "${env:JAVA_HOME_8_X64}",
-            "${env:JAVA_HOME_11_X64}",
-            "${env:JAVA_HOME_17_X64}",
-            "${env:JAVA_HOME_25_X64}",
+            'C:\Android', 'C:\SeleniumWebDrivers',
+            "${env:JAVA_HOME_8_X64}", "${env:JAVA_HOME_11_X64}",
+            "${env:JAVA_HOME_17_X64}", "${env:JAVA_HOME_25_X64}",
             'C:\Program Files\dotnet\sdk',
             'C:\Program Files (x86)\Microsoft SDKs\Azure',
-            'C:\hostedtoolcache\Ruby',
-            'C:\hostedtoolcache\go',
-            'C:\hostedtoolcache\CodeQL',
-            'C:\Miniconda'
+            'C:\hostedtoolcache\Ruby', 'C:\hostedtoolcache\go',
+            'C:\hostedtoolcache\CodeQL', 'C:\Miniconda'
           )
           foreach ($d in $dirs) {
             if (Test-Path $d) {
@@ -86,54 +155,36 @@ jobs:
             }
           }
 
-      - name: Disk space report (post-cleanup)
-        shell: pwsh
-        run: Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}}, @{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}}
+      - name: Download Stage 1
+        uses: actions/download-artifact@v4
+        with:
+          name: coca-toolchain-win-x86_64-msvc
+          path: C:\stage1-dl
 
-      - name: Detect build environment
+      - name: Extract Stage 1
         shell: pwsh
         run: |
-          Write-Host "=== Environment ==="
-          Write-Host "OS: $env:OS"
-          Write-Host "PROCESSOR_ARCHITECTURE: $env:PROCESSOR_ARCHITECTURE"
-          Write-Host "NUMBER_OF_PROCESSORS: $env:NUMBER_OF_PROCESSORS"
-          Write-Host ""
+          & 7z x C:\stage1-dl\stage1.zip -oC:\ -y
+          Write-Host "Stage 1 clang-cl version:"
+          & C:\stage1\bin\clang-cl.exe --version
 
-          # Find VS
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          if (Test-Path $vswhere) {
-            $vsPath = & $vswhere -latest -property installationPath
-            $vsVer = & $vswhere -latest -property installationVersion
-            Write-Host "Visual Studio: $vsVer at $vsPath"
-          }
-
-          # Python
-          python --version
-          Write-Host "Python path: $(Get-Command python).Source"
-
-          # SWIG
-          $swig = Get-Command swig.exe -ErrorAction SilentlyContinue
-          if ($swig) { Write-Host "SWIG: $($swig.Source)" }
-
-          # CMake & Ninja
-          cmake --version | Select-Object -First 1
-          ninja --version
-
-      - name: Build LLVM
+      - name: Build Stage 2
         shell: pwsh
         timeout-minutes: 540
         env:
+          STAGE1_DIR: 'C:\stage1'
+          BUILD_DIR: 'C:\b2'
           NPROC: '4'
           PYTHON_DIR: ${{ env.pythonLocation }}
         run: |
-          & "${{ github.workspace }}\scripts\windows-x64\build-llvm.ps1"
+          & "${{ github.workspace }}\scripts\windows-x64\build-llvm-stage2.ps1"
 
       - name: Disk space report (post-build)
         shell: pwsh
         if: always()
         run: Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}}, @{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}}
 
-      - name: Upload artifact (main)
+      - name: Upload artifact (main, libc++)
         uses: actions/upload-artifact@v4
         with:
           name: coca-toolchain-win-x86_64
@@ -142,45 +193,50 @@ jobs:
           if-no-files-found: error
 
   # ===========================================================================
-  # Job 2: Build LLVM (p2996 variant) — Bloomberg reflection fork
+  # Job 3: Stage 1 p2996 — MSVC-built (cached)
   # ===========================================================================
-  build-p2996:
-    name: LLVM Build (p2996)
+  stage1-p2996:
+    name: Stage 1 (p2996, MSVC)
     runs-on: windows-2022
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
     timeout-minutes: 540
     env:
       VARIANT: p2996
-      INSTALL_PREFIX: 'C:\coca-toolchain-p2996'
+      INSTALL_PREFIX: 'C:\stage1-p2996'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.14 (for LLDB + MLIR bindings)
+      - name: Cache Stage 1 (p2996)
+        id: cache-stage1-p2996
+        uses: actions/cache@v4
+        with:
+          path: C:\stage1-p2996-archive
+          key: win-x64-stage1-p2996-v1-${{ hashFiles('scripts/windows-x64/build-llvm.ps1') }}
+
+      - name: Setup Python 3.14
+        if: steps.cache-stage1-p2996.outputs.cache-hit != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.14'
 
-      - name: Install Python deps (MLIR Python bindings)
+      - name: Install Python deps
+        if: steps.cache-stage1-p2996.outputs.cache-hit != 'true'
         shell: pwsh
         run: python -m pip install pybind11 nanobind
 
       - name: Free disk space
+        if: steps.cache-stage1-p2996.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $dirs = @(
-            'C:\Android',
-            'C:\SeleniumWebDrivers',
-            "${env:JAVA_HOME_8_X64}",
-            "${env:JAVA_HOME_11_X64}",
-            "${env:JAVA_HOME_17_X64}",
-            "${env:JAVA_HOME_25_X64}",
+            'C:\Android', 'C:\SeleniumWebDrivers',
+            "${env:JAVA_HOME_8_X64}", "${env:JAVA_HOME_11_X64}",
+            "${env:JAVA_HOME_17_X64}", "${env:JAVA_HOME_25_X64}",
             'C:\Program Files\dotnet\sdk',
             'C:\Program Files (x86)\Microsoft SDKs\Azure',
-            'C:\hostedtoolcache\Ruby',
-            'C:\hostedtoolcache\go',
-            'C:\hostedtoolcache\CodeQL',
-            'C:\Miniconda'
+            'C:\hostedtoolcache\Ruby', 'C:\hostedtoolcache\go',
+            'C:\hostedtoolcache\CodeQL', 'C:\Miniconda'
           )
           foreach ($d in $dirs) {
             if (Test-Path $d) {
@@ -189,16 +245,101 @@ jobs:
             }
           }
 
-      - name: Build LLVM (p2996)
+      - name: Build Stage 1 (p2996)
+        if: steps.cache-stage1-p2996.outputs.cache-hit != 'true'
         shell: pwsh
         timeout-minutes: 540
         env:
           NPROC: '4'
           PYTHON_DIR: ${{ env.pythonLocation }}
+          SKIP_ARCHIVE: 'true'
         run: |
           & "${{ github.workspace }}\scripts\windows-x64\build-llvm.ps1"
 
-      - name: Upload artifact (p2996)
+      - name: Archive Stage 1 (p2996) for cache
+        if: steps.cache-stage1-p2996.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path C:\stage1-p2996-archive -Force | Out-Null
+          & 7z a -tzip -mx=3 -mmt=on C:\stage1-p2996-archive\stage1.zip C:\stage1-p2996 | Select-Object -Last 3
+
+      - name: Upload Stage 1 artifact (p2996 MSVC)
+        uses: actions/upload-artifact@v4
+        with:
+          name: coca-toolchain-p2996-win-x86_64-msvc
+          path: C:\stage1-p2996-archive\stage1.zip
+          retention-days: 14
+          if-no-files-found: error
+
+  # ===========================================================================
+  # Job 4: Stage 2 p2996 — clang-cl + libc++
+  # ===========================================================================
+  stage2-p2996:
+    name: Stage 2 (p2996, libc++)
+    needs: stage1-p2996
+    if: ${{ github.event.inputs.build_p2996 != 'false' }}
+    runs-on: windows-2022
+    timeout-minutes: 540
+    env:
+      VARIANT: p2996
+      INSTALL_PREFIX: 'C:\coca-toolchain-p2996'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install Python deps
+        shell: pwsh
+        run: python -m pip install pybind11 nanobind
+
+      - name: Free disk space
+        shell: pwsh
+        run: |
+          $dirs = @(
+            'C:\Android', 'C:\SeleniumWebDrivers',
+            "${env:JAVA_HOME_8_X64}", "${env:JAVA_HOME_11_X64}",
+            "${env:JAVA_HOME_17_X64}", "${env:JAVA_HOME_25_X64}",
+            'C:\Program Files\dotnet\sdk',
+            'C:\Program Files (x86)\Microsoft SDKs\Azure',
+            'C:\hostedtoolcache\Ruby', 'C:\hostedtoolcache\go',
+            'C:\hostedtoolcache\CodeQL', 'C:\Miniconda'
+          )
+          foreach ($d in $dirs) {
+            if (Test-Path $d) {
+              Write-Host "Removing $d ..."
+              Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+      - name: Download Stage 1 (p2996)
+        uses: actions/download-artifact@v4
+        with:
+          name: coca-toolchain-p2996-win-x86_64-msvc
+          path: C:\stage1-dl
+
+      - name: Extract Stage 1
+        shell: pwsh
+        run: |
+          & 7z x C:\stage1-dl\stage1.zip -oC:\ -y
+          Rename-Item C:\stage1-p2996 C:\stage1
+          & C:\stage1\bin\clang-cl.exe --version
+
+      - name: Build Stage 2 (p2996)
+        shell: pwsh
+        timeout-minutes: 540
+        env:
+          STAGE1_DIR: 'C:\stage1'
+          BUILD_DIR: 'C:\b2'
+          NPROC: '4'
+          PYTHON_DIR: ${{ env.pythonLocation }}
+        run: |
+          & "${{ github.workspace }}\scripts\windows-x64\build-llvm-stage2.ps1"
+
+      - name: Upload artifact (p2996, libc++)
         uses: actions/upload-artifact@v4
         with:
           name: coca-toolchain-p2996-win-x86_64
@@ -207,11 +348,11 @@ jobs:
           if-no-files-found: error
 
   # ===========================================================================
-  # Job 3: Verify portability (main)
+  # Job 5: Verify portability (main Stage 2)
   # ===========================================================================
   verify-main:
     name: Verify (main)
-    needs: build-main
+    needs: stage2-main
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
@@ -237,11 +378,11 @@ jobs:
           & "${{ github.workspace }}\scripts\windows-x64\verify-portability.ps1"
 
   # ===========================================================================
-  # Job 4: Verify portability (p2996)
+  # Job 6: Verify portability (p2996 Stage 2)
   # ===========================================================================
   verify-p2996:
     name: Verify (p2996)
-    needs: build-p2996
+    needs: stage2-p2996
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
     runs-on: windows-2022
     timeout-minutes: 30

@@ -24,8 +24,7 @@ safe-outputs:
     github-token-for-extra-empty-commit: ${{ secrets.GH_AW_CI_TRIGGER_TOKEN }}
     protected-files: fallback-to-issue
   create-issue:
-    title-prefix: "[ci-fix] "
-    labels: [ci-failure, needs-human]
+    max: 3
     close-older-issues: true
   add-comment:
 
@@ -111,6 +110,23 @@ Key files:
    Do NOT attempt a code change. Instead, create an issue with full diagnosis
    and label it `needs-human`. Complex = touching more than 3 files, or requiring
    changes to the stage1/stage2 boundary, or unclear root cause.
+
+8. **Proactive architecture analysis.**
+   Even when the immediate failure has a simple fix, look for deeper structural
+   problems that contributed to the failure. If you identify architectural issues
+   (e.g., duplicated logic across platforms, fragile coupling between stages,
+   missing abstractions, inconsistent naming, overly complex dependency chains),
+   create a SEPARATE issue with:
+   - **Title prefix**: `[arch]`
+   - **Labels**: `architecture`, `refactoring`
+   - **Content**: A structured refactoring plan that includes:
+     - **Problem**: What architectural weakness was exposed
+     - **Impact**: How it leads to recurring failures or maintenance burden
+     - **Proposed Changes**: Specific, phased refactoring steps (not code, but design)
+     - **Risk Assessment**: What could break, which caches would be invalidated
+     - **Priority**: Low / Medium / High based on failure frequency and blast radius
+   Do NOT assign architecture issues to `copilot` — these require human review.
+   Do NOT block the immediate fix on architecture improvements.
 
 ## Rules — STRICTLY ENFORCED
 

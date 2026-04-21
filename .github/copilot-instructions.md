@@ -16,7 +16,7 @@ Two variants are built:
 Three platforms are supported:
 - **linux-x64**: Ubuntu 16.04 x86_64 (Docker on `ubuntu-latest`)
 - **linux-arm64**: Ubuntu 16.04 aarch64 (Docker on `ubuntu-24.04-arm`)
-- **windows-x64**: Windows Server 2022 (native MSVC build)
+- **windows-x64**: Windows Server 2022 (Stage 1: MSVC, Stage 2: clang-cl + libc++)
 
 ## Repository Structure
 
@@ -44,16 +44,21 @@ scripts/
     build-llvm-stage1.sh      — Stage 1 build script (ARM64)
     build-llvm-stage2.sh      — Stage 2 build script (ARM64)
   windows-x64/
-    build-llvm.ps1            — Windows single-stage build script
+    build-llvm.ps1            — Windows Stage 1 build script (MSVC)
+    build-llvm-stage2.ps1     — Windows Stage 2 build script (clang-cl + libc++)
+    verify-portability.ps1    — Post-build verification
 ```
 
 ## Key Architecture Decisions
 
 - **`LLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF`**: Runtimes install to `lib/` not `lib/<triple>/`, so `$ORIGIN/../lib` rpath works universally.
-- **Stage 2 uses `-stdlib=libc++`** in `CMAKE_CXX_FLAGS` (not linker flags, to avoid polluting C compiler tests).
-- **Stage 2 linker flags** include `-L` paths (link-time) and `-Wl,-rpath` (runtime) for Stage 1 and bootstrap lib directories.
-- **`LD_LIBRARY_PATH`** in Stage 2 build scripts includes the build tree's `lib/` so host tools (flang, etc.) can find freshly-built shared libs.
-- **Cache strategy**: Stage 1 cache key only hashes `llvm-config-common.sh` + `llvm-config-stage1.sh`, so Stage 2-only changes don't trigger Stage 1 rebuilds.
+- **Linux Stage 2 uses `-stdlib=libc++`** in `CMAKE_CXX_FLAGS` (not linker flags, to avoid polluting C compiler tests).
+- **Linux Stage 2 linker flags** include `-L` paths (link-time) and `-Wl,-rpath` (runtime) for Stage 1 and bootstrap lib directories.
+- **`LD_LIBRARY_PATH`** in Linux Stage 2 build scripts includes the build tree's `lib/` so host tools (flang, etc.) can find freshly-built shared libs.
+- **Linux cache strategy**: Stage 1 cache key only hashes `llvm-config-common.sh` + `llvm-config-stage1.sh`, so Stage 2-only changes don't trigger Stage 1 rebuilds.
+- **Windows dual-stage**: Stage 1 uses MSVC cl.exe, Stage 2 uses Stage 1 clang-cl.exe with libc++ as default C++ stdlib. Windows does NOT build libunwind/libcxxabi (uses SEH + MSVC ABI).
+- **Windows cache strategy**: Stage 1 cache key hashes `build-llvm.ps1`, so Stage 2-only changes (to `build-llvm-stage2.ps1`) don't trigger Stage 1 rebuilds.
+- **Windows Stage 2 defaults**: `CLANG_DEFAULT_CXX_STDLIB=libc++`, `CLANG_DEFAULT_RTLIB=compiler-rt`, `CLANG_DEFAULT_LINKER=lld`.
 
 ## Build Environment
 
