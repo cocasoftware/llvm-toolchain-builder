@@ -30,6 +30,11 @@ export STAGE="stage2"
 export PATH="${STAGE1_PREFIX}/bin:${BOOTSTRAP_PREFIX}/bin:${PATH}"
 export LD_LIBRARY_PATH="${STAGE2_BUILD}/lib:${STAGE1_PREFIX}/lib:${STAGE1_PREFIX}/lib/aarch64-unknown-linux-gnu:${BOOTSTRAP_PREFIX}/lib64:${BOOTSTRAP_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
 
+# LDFLAGS is picked up by CMake compiler tests in ExternalProject sub-builds
+# (e.g. BOLT runtime) which don't inherit Stage 2's CMAKE_EXE_LINKER_FLAGS.
+# Stage 1 clang defaults to libunwind, so the linker must find it.
+export LDFLAGS="-L${STAGE1_PREFIX}/lib -L${BOOTSTRAP_PREFIX}/lib64 -L${BOOTSTRAP_PREFIX}/lib"
+
 source "${COMMON_DIR}/versions.sh"
 source "${COMMON_DIR}/source.sh"
 source "${COMMON_DIR}/llvm-config.sh"

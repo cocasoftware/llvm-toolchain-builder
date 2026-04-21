@@ -39,7 +39,7 @@ jobs:
   # ===========================================================================
   stage1-main:
     name: Stage 1 (main, MSVC)
-    runs-on: windows-64core
+    runs-on: windows-2022
     timeout-minutes: 120
     env:
       VARIANT: main
@@ -118,7 +118,7 @@ jobs:
   stage2-main:
     name: Stage 2 (main, libc++)
     needs: stage1-main
-    runs-on: windows-64core
+    runs-on: windows-2022
     timeout-minutes: 120
     env:
       VARIANT: main
@@ -197,7 +197,7 @@ jobs:
   # ===========================================================================
   stage1-p2996:
     name: Stage 1 (p2996, MSVC)
-    runs-on: windows-64core
+    runs-on: windows-2022
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
     timeout-minutes: 120
     env:
@@ -278,7 +278,7 @@ jobs:
     name: Stage 2 (p2996, libc++)
     needs: stage1-p2996
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
-    runs-on: windows-64core
+    runs-on: windows-2022
     timeout-minutes: 120
     env:
       VARIANT: p2996
