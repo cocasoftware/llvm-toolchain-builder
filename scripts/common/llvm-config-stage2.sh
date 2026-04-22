@@ -83,6 +83,8 @@ generate_cmake_args() {
         "-DCOMPILER_RT_BUILD_PROFILE=ON"
         "-DCOMPILER_RT_BUILD_MEMPROF=ON"
         "-DCOMPILER_RT_BUILD_ORC=ON"
+        "-DCOMPILER_RT_USE_LLVM_UNWINDER=ON"
+        "-DCOMPILER_RT_USE_BUILTINS_LIBRARY=ON"
     )
 
     # ── LLDB + Python ───────────────────────────────────────────────────

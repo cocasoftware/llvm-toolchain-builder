@@ -90,7 +90,7 @@ jobs:
         if: steps.cache-stage1.outputs.cache-hit != 'true'
         shell: pwsh
         env:
-          NPROC: '64'
+          NPROC: '4'
           PYTHON_DIR: ${{ env.pythonLocation }}
           SKIP_ARCHIVE: 'true'
         run: |
@@ -172,7 +172,7 @@ jobs:
         env:
           STAGE1_DIR: 'C:\stage1'
           BUILD_DIR: 'C:\b2'
-          NPROC: '64'
+          NPROC: '4'
           PYTHON_DIR: ${{ env.pythonLocation }}
         run: |
           & "${{ github.workspace }}\scripts\windows-x64\build-llvm-stage2.ps1"
@@ -247,7 +247,7 @@ jobs:
         if: steps.cache-stage1-p2996.outputs.cache-hit != 'true'
         shell: pwsh
         env:
-          NPROC: '64'
+          NPROC: '4'
           PYTHON_DIR: ${{ env.pythonLocation }}
           SKIP_ARCHIVE: 'true'
         run: |
@@ -330,7 +330,7 @@ jobs:
         env:
           STAGE1_DIR: 'C:\stage1'
           BUILD_DIR: 'C:\b2'
-          NPROC: '64'
+          NPROC: '4'
           PYTHON_DIR: ${{ env.pythonLocation }}
         run: |
           & "${{ github.workspace }}\scripts\windows-x64\build-llvm-stage2.ps1"
