@@ -20,10 +20,10 @@ check() {
     shift
     if "$@" >/dev/null 2>&1; then
         echo "  PASS: ${label}"
-        ((PASS++))
+        PASS=$((PASS + 1))
     else
         echo "  FAIL: ${label}"
-        ((FAIL++))
+        FAIL=$((FAIL + 1))
     fi
 }
 
@@ -33,10 +33,10 @@ check_output() {
     local output
     if output=$("$@" 2>&1); then
         echo "  PASS: ${label} → ${output}"
-        ((PASS++))
+        PASS=$((PASS + 1))
     else
         echo "  FAIL: ${label} → ${output}"
-        ((FAIL++))
+        FAIL=$((FAIL + 1))
     fi
 }
 
@@ -98,7 +98,7 @@ EOF
         check "run hello_c" "${tmpdir}/hello_c"
     else
         echo "  FAIL: compile hello.c"
-        ((FAIL++))
+        FAIL=$((FAIL + 1))
     fi
 
     # C++ compilation with libc++
@@ -120,7 +120,7 @@ EOF
         check "run hello_cpp" "${tmpdir}/hello_cpp"
     else
         echo "  FAIL: compile hello.cpp (libc++)"
-        ((FAIL++))
+        FAIL=$((FAIL + 1))
     fi
 
     # C++ compilation with libstdc++ (if available on host)
@@ -164,7 +164,7 @@ EOF
         check "run lld-linked binary" "${tmpdir}/hello_lld"
     else
         echo "  FAIL: link with lld"
-        ((FAIL++))
+        FAIL=$((FAIL + 1))
     fi
 
     # 3. Dynamic dependency check
@@ -177,10 +177,10 @@ EOF
     # Check that no "not found" in ldd output
     if echo "${clang_deps}" | grep -q "not found"; then
         echo "  FAIL: clang has unresolved dependencies"
-        ((FAIL++))
+        FAIL=$((FAIL + 1))
     else
         echo "  PASS: all clang dependencies resolved"
-        ((PASS++))
+        PASS=$((PASS + 1))
     fi
 
     # Check max glibc version required
