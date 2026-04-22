@@ -93,11 +93,13 @@ int main(void) {
     return 0;
 }
 EOF
-    if "${TOOLCHAIN_DIR}/bin/clang" -o "${tmpdir}/hello_c" "${tmpdir}/hello.c" 2>/dev/null; then
+    local compile_err
+    if compile_err=$("${TOOLCHAIN_DIR}/bin/clang" -o "${tmpdir}/hello_c" "${tmpdir}/hello.c" 2>&1); then
         check "compile hello.c" true
         check "run hello_c" "${tmpdir}/hello_c"
     else
         echo "  FAIL: compile hello.c"
+        echo "${compile_err}" | head -20 | sed 's/^/    /'
         FAIL=$((FAIL + 1))
     fi
 
@@ -115,11 +117,12 @@ int main() {
     return 0;
 }
 EOF
-    if "${TOOLCHAIN_DIR}/bin/clang++" -stdlib=libc++ -o "${tmpdir}/hello_cpp" "${tmpdir}/hello.cpp" 2>/dev/null; then
+    if compile_err=$("${TOOLCHAIN_DIR}/bin/clang++" -stdlib=libc++ -o "${tmpdir}/hello_cpp" "${tmpdir}/hello.cpp" 2>&1); then
         check "compile hello.cpp (libc++)" true
         check "run hello_cpp" "${tmpdir}/hello_cpp"
     else
         echo "  FAIL: compile hello.cpp (libc++)"
+        echo "${compile_err}" | head -20 | sed 's/^/    /'
         FAIL=$((FAIL + 1))
     fi
 
@@ -159,11 +162,12 @@ EOF
     fi
 
     # LLD linking test
-    if "${TOOLCHAIN_DIR}/bin/clang" -fuse-ld=lld -o "${tmpdir}/hello_lld" "${tmpdir}/hello.c" 2>/dev/null; then
+    if compile_err=$("${TOOLCHAIN_DIR}/bin/clang" -fuse-ld=lld -o "${tmpdir}/hello_lld" "${tmpdir}/hello.c" 2>&1); then
         check "link with lld" true
         check "run lld-linked binary" "${tmpdir}/hello_lld"
     else
         echo "  FAIL: link with lld"
+        echo "${compile_err}" | head -20 | sed 's/^/    /'
         FAIL=$((FAIL + 1))
     fi
 
