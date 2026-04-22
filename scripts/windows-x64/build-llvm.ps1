@@ -35,6 +35,9 @@ $BUILD_DIR      = if ($env:BUILD_DIR)      { $env:BUILD_DIR }     else { 'C:\b' 
 $PYTHON_DIR     = if ($env:PYTHON_DIR)     { $env:PYTHON_DIR }    else { '' }
 $SWIG_DIR       = if ($env:SWIG_DIR)       { $env:SWIG_DIR }     else { '' }
 
+# CMake interprets backslash as escape in -D string values.
+function ToForwardSlash([string]$p) { return $p.Replace('\', '/') }
+
 function Log($msg) {
     Write-Host "===> $(Get-Date -Format 'HH:mm:ss') $msg" -ForegroundColor Cyan
 }
@@ -193,14 +196,14 @@ function Build-LLVM {
 
     $cmakeArgs = @(
         '-G', 'Ninja',
-        '-S', (Join-Path $SourceDir 'llvm'),
-        '-B', $BUILD_DIR,
+        '-S', (ToForwardSlash (Join-Path $SourceDir 'llvm')),
+        '-B', (ToForwardSlash $BUILD_DIR),
         "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX",
+        "-DCMAKE_INSTALL_PREFIX=$(ToForwardSlash $INSTALL_PREFIX)",
         # Use clang-cl from the runner's LLVM 20 if available, otherwise MSVC cl.exe
         "-DCMAKE_C_COMPILER=cl.exe",
         "-DCMAKE_CXX_COMPILER=cl.exe",
-        "-DCMAKE_AR=$script:MSVC_LIB_EXE",
+        "-DCMAKE_AR=$(ToForwardSlash $script:MSVC_LIB_EXE)",
         "-DLLVM_USE_LINKER=lld",
         "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL",
         # Projects
@@ -265,10 +268,10 @@ function Build-LLVM {
 
         $cmakeArgs += @(
             '-DLLDB_ENABLE_PYTHON=ON',
-            "-DPython3_EXECUTABLE=$pyExe",
-            "-DPython3_INCLUDE_DIR=$pyInclude",
-            "-DPython3_LIBRARY=$pyLib",
-            "-DSWIG_EXECUTABLE=$swigExe",
+            "-DPython3_EXECUTABLE=$(ToForwardSlash $pyExe)",
+            "-DPython3_INCLUDE_DIR=$(ToForwardSlash $pyInclude)",
+            "-DPython3_LIBRARY=$(ToForwardSlash $pyLib)",
+            "-DSWIG_EXECUTABLE=$(ToForwardSlash $swigExe)",
             "-DLLDB_PYTHON_HOME=../tools/python",
             "-DLLDB_PYTHON_EXT_SUFFIX=.cp${pyPureVer}-win_amd64.pyd",
             # MLIR Python bindings (requires nanobind; install with: pip install nanobind)

@@ -33,6 +33,10 @@ $LLVM_SRC       = if ($env:LLVM_SRC)       { $env:LLVM_SRC }      else { 'C:\llv
 $P2996_SRC      = if ($env:P2996_SRC)      { $env:P2996_SRC }     else { 'C:\llvm-p2996' }
 $PYTHON_DIR     = if ($env:PYTHON_DIR)     { $env:PYTHON_DIR }    else { '' }
 
+# CMake interprets backslash as escape in -D string values.
+# Convert all paths to forward slash before passing to cmake.
+function ToForwardSlash([string]$p) { return $p.Replace('\', '/') }
+
 function Log($msg) {
     Write-Host "===> $(Get-Date -Format 'HH:mm:ss') [Stage2] $msg" -ForegroundColor Cyan
 }
@@ -158,12 +162,12 @@ function Build-LLVMStage2 {
 
     New-Item -ItemType Directory -Path $BUILD_DIR -Force | Out-Null
 
-    $stage1Bin = Join-Path $STAGE1_DIR 'bin'
-    $clangCl   = Join-Path $stage1Bin 'clang-cl.exe'
-    $lldLink   = Join-Path $stage1Bin 'lld-link.exe'
-    $llvmAr    = Join-Path $stage1Bin 'llvm-ar.exe'
-    $llvmRanlib = Join-Path $stage1Bin 'llvm-ranlib.exe'
-    $llvmNm    = Join-Path $stage1Bin 'llvm-nm.exe'
+    $stage1Bin  = Join-Path $STAGE1_DIR 'bin'
+    $clangCl   = ToForwardSlash (Join-Path $stage1Bin 'clang-cl.exe')
+    $lldLink   = ToForwardSlash (Join-Path $stage1Bin 'lld-link.exe')
+    $llvmAr    = ToForwardSlash (Join-Path $stage1Bin 'llvm-ar.exe')
+    $llvmRanlib = ToForwardSlash (Join-Path $stage1Bin 'llvm-ranlib.exe')
+    $llvmNm    = ToForwardSlash (Join-Path $stage1Bin 'llvm-nm.exe')
 
     # Projects — same as Stage 1 (full-featured)
     $projects = 'clang;lld;clang-tools-extra;lldb;mlir;polly;flang'
@@ -177,10 +181,10 @@ function Build-LLVMStage2 {
 
     $cmakeArgs = @(
         '-G', 'Ninja',
-        '-S', (Join-Path $SourceDir 'llvm'),
-        '-B', $BUILD_DIR,
+        '-S', (ToForwardSlash (Join-Path $SourceDir 'llvm')),
+        '-B', (ToForwardSlash $BUILD_DIR),
         '-DCMAKE_BUILD_TYPE=Release',
-        "-DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX",
+        "-DCMAKE_INSTALL_PREFIX=$(ToForwardSlash $INSTALL_PREFIX)",
         # Stage 1 clang-cl as host compiler
         "-DCMAKE_C_COMPILER=$clangCl",
         "-DCMAKE_CXX_COMPILER=$clangCl",
@@ -256,10 +260,10 @@ function Build-LLVMStage2 {
 
         $cmakeArgs += @(
             '-DLLDB_ENABLE_PYTHON=ON',
-            "-DPython3_EXECUTABLE=$pyExe",
-            "-DPython3_INCLUDE_DIR=$pyInclude",
-            "-DPython3_LIBRARY=$pyLib",
-            "-DSWIG_EXECUTABLE=$swigExe",
+            "-DPython3_EXECUTABLE=$(ToForwardSlash $pyExe)",
+            "-DPython3_INCLUDE_DIR=$(ToForwardSlash $pyInclude)",
+            "-DPython3_LIBRARY=$(ToForwardSlash $pyLib)",
+            "-DSWIG_EXECUTABLE=$(ToForwardSlash $swigExe)",
             "-DLLDB_PYTHON_HOME=../tools/python",
             "-DLLDB_PYTHON_EXT_SUFFIX=.cp${pyPureVer}-win_amd64.pyd",
             '-DMLIR_ENABLE_BINDINGS_PYTHON=ON'
