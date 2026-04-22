@@ -4,6 +4,7 @@
 #
 # Tasks:
 #   1. Bundle bootstrap shared libraries
+#   1b. Create clang configuration files
 #   2. Install Clang Python bindings (from source tree)
 #   3. Fix rpaths to use $ORIGIN
 #   4. Strip debug info
@@ -46,6 +47,29 @@ bundle_shared_libs() {
     done
 
     log "Shared libraries bundled"
+}
+
+# ── 1b. Create clang configuration files ─────────────────────────────
+# With LLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF, libc++, libunwind, and
+# compiler-rt builtins are installed in <prefix>/lib/ instead of
+# <prefix>/lib/clang/<ver>/lib/<triple>/. The clang driver doesn't add
+# <prefix>/lib to the linker search path by default, so lld fails with
+# "unable to find library -lunwind / -lc++". A config file fixes this.
+create_clang_config() {
+    log "Creating clang configuration files..."
+
+    local cfg_dir="${INSTALL_PREFIX}/bin"
+    # Both clang and clang++ read <driver-name>.cfg from the bin directory.
+    # Use relative path so the toolchain remains relocatable.
+    for cfg in clang.cfg clang++.cfg; do
+        cat > "${cfg_dir}/${cfg}" << 'EOF'
+# Ensure the linker can find libc++, libunwind, and compiler-rt builtins
+# installed in <prefix>/lib (LLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF).
+# $ prefix = only passed when invoking the linker.
+$-L<CFGDIR>/../lib
+EOF
+        log "  Created ${cfg_dir}/${cfg}"
+    done
 }
 
 # ── 2. Install Clang Python bindings ────────────────────────────────────
@@ -204,6 +228,7 @@ verify_no_forbidden_deps() {
 # ── Run all post-install steps ──────────────────────────────────────────
 run_post_install() {
     bundle_shared_libs
+    create_clang_config
     install_clang_python_bindings
     fix_rpaths
     verify_no_forbidden_deps
