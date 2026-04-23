@@ -428,6 +428,7 @@ jobs:
       - name: Run portability tests in container
         run: |
           docker run --rm \
+            --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
             -v ${{ github.workspace }}:/src:ro \
             -v /opt:/opt:ro \
             -e TOOLCHAIN_DIR=/opt/coca-toolchain-linux-x86_64 \
@@ -471,6 +472,7 @@ jobs:
       - name: Run portability tests in container
         run: |
           docker run --rm \
+            --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
             -v ${{ github.workspace }}:/src:ro \
             -v /opt:/opt:ro \
             -e TOOLCHAIN_DIR=/opt/coca-toolchain-p2996-linux-x86_64 \

@@ -130,11 +130,19 @@ install_test_deps() {
         local arch
         arch=$(uname -m)
         local cmake_url="https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-linux-${arch}.tar.gz"
-        if wget -q -O /tmp/cmake.tar.gz "${cmake_url}" 2>/dev/null; then
-            tar -xf /tmp/cmake.tar.gz -C /opt --strip-components=1 2>/dev/null || true
-            export PATH="/opt/bin:${PATH}"
+        local cmake_prefix="/tmp/cmake-dist"
+        mkdir -p "${cmake_prefix}"
+        local dl_ok=false
+        if command -v wget &>/dev/null; then
+            wget -q -O /tmp/cmake.tar.gz "${cmake_url}" 2>/dev/null && dl_ok=true
+        elif command -v curl &>/dev/null; then
+            curl -fsSL -o /tmp/cmake.tar.gz "${cmake_url}" 2>/dev/null && dl_ok=true
+        fi
+        if ${dl_ok}; then
+            tar -xf /tmp/cmake.tar.gz -C "${cmake_prefix}" --strip-components=1 2>/dev/null || true
+            export PATH="${cmake_prefix}/bin:${PATH}"
             rm -f /tmp/cmake.tar.gz
-            log "cmake $(cmake --version 2>/dev/null | head -1) installed to /opt/bin"
+            log "cmake $(cmake --version 2>/dev/null | head -1) installed to ${cmake_prefix}/bin"
         else
             log "WARNING: failed to download cmake binary"
         fi
