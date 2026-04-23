@@ -400,7 +400,7 @@ jobs:
           - arm64v8/ubuntu:20.04
           - arm64v8/ubuntu:22.04
           - arm64v8/ubuntu:24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -443,7 +443,7 @@ jobs:
           - arm64v8/ubuntu:16.04
           - arm64v8/ubuntu:20.04
           - arm64v8/ubuntu:24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
