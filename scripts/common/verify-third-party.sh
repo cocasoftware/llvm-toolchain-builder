@@ -25,10 +25,13 @@ test_third_party_libs() {
     local libdir="${t}/libs"
     mkdir -p "${libdir}"
 
+    # NOTE: cmake_build returns non-zero on failure and already increments FAIL.
+    # We append "|| true" to each call so set -e does not abort the entire script.
+
     # --- googletest (C++17, template-heavy) ---
     if timeout 30 git clone --depth 1 https://github.com/google/googletest.git "${libdir}/googletest" 2>/dev/null; then
         cmake_build "googletest" "${libdir}/googletest" "${libdir}/googletest-build" "RelWithDebInfo" \
-            -DBUILD_GMOCK=ON
+            -DBUILD_GMOCK=ON || true
     else
         skip "googletest — clone failed"
     fi
@@ -36,7 +39,7 @@ test_third_party_libs() {
     # --- fmtlib/fmt (C++20, format library) ---
     if timeout 30 git clone --depth 1 https://github.com/fmtlib/fmt.git "${libdir}/fmt" 2>/dev/null; then
         cmake_build "fmt" "${libdir}/fmt" "${libdir}/fmt-build" "Debug" \
-            -DFMT_TEST=OFF -DFMT_DOC=OFF
+            -DFMT_TEST=OFF -DFMT_DOC=OFF || true
     else
         skip "fmt — clone failed"
     fi
@@ -44,7 +47,7 @@ test_third_party_libs() {
     # --- nlohmann/json (C++17, header-heavy) ---
     if timeout 30 git clone --depth 1 https://github.com/nlohmann/json.git "${libdir}/json" 2>/dev/null; then
         cmake_build "nlohmann/json" "${libdir}/json" "${libdir}/json-build" "Debug" \
-            -DJSON_BuildTests=OFF
+            -DJSON_BuildTests=OFF || true
     else
         skip "nlohmann/json — clone failed"
     fi
@@ -52,7 +55,7 @@ test_third_party_libs() {
     # --- zlib-ng (C, SIMD optimizations) ---
     if timeout 30 git clone --depth 1 https://github.com/zlib-ng/zlib-ng.git "${libdir}/zlib-ng" 2>/dev/null; then
         cmake_build "zlib-ng" "${libdir}/zlib-ng" "${libdir}/zlib-ng-build" "RelWithDebInfo" \
-            -DZLIB_COMPAT=ON -DWITH_GTEST=OFF
+            -DZLIB_COMPAT=ON -DWITH_GTEST=OFF || true
     else
         skip "zlib-ng — clone failed"
     fi
@@ -60,15 +63,16 @@ test_third_party_libs() {
     # --- lz4 (C, minimal, performance-critical) ---
     if timeout 30 git clone --depth 1 https://github.com/lz4/lz4.git "${libdir}/lz4" 2>/dev/null; then
         cmake_build "lz4" "${libdir}/lz4/build/cmake" "${libdir}/lz4-build" "RelWithDebInfo" \
-            -DLZ4_BUILD_CLI=OFF -DLZ4_BUILD_LEGACY_LZ4C=OFF
+            -DLZ4_BUILD_CLI=OFF -DLZ4_BUILD_LEGACY_LZ4C=OFF || true
     else
         skip "lz4 — clone failed"
     fi
 
-    # --- GLFW (C, Vulkan/OpenGL windowing — headless build) ---
+    # --- GLFW (C, Vulkan/OpenGL windowing — headless, no X11/Wayland) ---
     if timeout 30 git clone --depth 1 https://github.com/glfw/glfw.git "${libdir}/glfw" 2>/dev/null; then
         cmake_build "glfw (headless)" "${libdir}/glfw" "${libdir}/glfw-build" "RelWithDebInfo" \
-            -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
+            -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF \
+            -DGLFW_BUILD_WAYLAND=OFF -DGLFW_BUILD_X11=OFF || true
     else
         skip "glfw — clone failed"
     fi
@@ -76,7 +80,7 @@ test_third_party_libs() {
     # --- microsoft/proxy (C++20 concepts-heavy) ---
     if timeout 30 git clone --depth 1 https://github.com/microsoft/proxy.git "${libdir}/proxy" 2>/dev/null; then
         cmake_build "microsoft/proxy" "${libdir}/proxy" "${libdir}/proxy-build" "Debug" \
-            -DBUILD_TESTING=OFF
+            -DBUILD_TESTING=OFF || true
     else
         skip "microsoft/proxy — clone failed"
     fi
@@ -97,7 +101,7 @@ test_third_party_libs() {
             cmake_build "Vulkan-Loader" "${libdir}/Vulkan-Loader" "${libdir}/vl-build" "RelWithDebInfo" \
                 -DVULKAN_HEADERS_INSTALL_DIR="${libdir}/vh-install" \
                 -DBUILD_TESTS=OFF -DBUILD_WSI_XCB_SUPPORT=OFF -DBUILD_WSI_XLIB_SUPPORT=OFF \
-                -DBUILD_WSI_WAYLAND_SUPPORT=OFF -DBUILD_WSI_DIRECTFB_SUPPORT=OFF
+                -DBUILD_WSI_WAYLAND_SUPPORT=OFF -DBUILD_WSI_DIRECTFB_SUPPORT=OFF || true
         else
             skip "Vulkan-Loader — clone failed"
         fi
