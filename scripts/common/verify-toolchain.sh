@@ -120,7 +120,20 @@ int main(void) {
     return 0;
 }
 EOF
-    try_compile_run "ASan (clean)" "${CC}" "${t}/asan_test.c" "${t}/asan_clean" -fsanitize=address -fno-omit-frame-pointer
+    local san_err
+    if san_err=$("${CC}" -fsanitize=address -fno-omit-frame-pointer -Wl,-rpath,"${TOOLCHAIN_DIR}/lib" -o "${t}/asan_clean" "${t}/asan_test.c" 2>&1); then
+        check "compile ASan (clean)" true
+        local run_out
+        if run_out=$("${t}/asan_clean" 2>&1); then
+            check "run ASan (clean)" true
+        else
+            echo "  FAIL: run ASan (clean)"
+            echo "${run_out}" | head -20 | sed 's/^/    /'
+            FAIL=$((FAIL + 1))
+        fi
+    else
+        fail_msg "compile ASan (clean)" "${san_err}"
+    fi
 
     cat > "${t}/ubsan_test.c" << 'EOF'
 #include <stdio.h>
@@ -130,7 +143,19 @@ int main(void) {
     return 0;
 }
 EOF
-    try_compile_run "UBSan (clean)" "${CC}" "${t}/ubsan_test.c" "${t}/ubsan_clean" -fsanitize=undefined
+    if san_err=$("${CC}" -fsanitize=undefined -Wl,-rpath,"${TOOLCHAIN_DIR}/lib" -o "${t}/ubsan_clean" "${t}/ubsan_test.c" 2>&1); then
+        check "compile UBSan (clean)" true
+        local run_out
+        if run_out=$("${t}/ubsan_clean" 2>&1); then
+            check "run UBSan (clean)" true
+        else
+            echo "  FAIL: run UBSan (clean)"
+            echo "${run_out}" | head -20 | sed 's/^/    /'
+            FAIL=$((FAIL + 1))
+        fi
+    else
+        fail_msg "compile UBSan (clean)" "${san_err}"
+    fi
 }
 
 # =============================================================================

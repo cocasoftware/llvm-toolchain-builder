@@ -68,8 +68,7 @@ test_third_party_libs() {
     # --- GLFW (C, Vulkan/OpenGL windowing — headless build) ---
     if timeout 30 git clone --depth 1 https://github.com/glfw/glfw.git "${libdir}/glfw" 2>/dev/null; then
         cmake_build "glfw (headless)" "${libdir}/glfw" "${libdir}/glfw-build" "RelWithDebInfo" \
-            -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF \
-            -DGLFW_USE_WAYLAND=OFF
+            -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
     else
         skip "glfw — clone failed"
     fi
