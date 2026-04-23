@@ -128,7 +128,7 @@ int main() {
     return 0;
 }
 EOF
-    if compile_err=$("${TOOLCHAIN_DIR}/bin/clang++" -stdlib=libc++ -o "${tmpdir}/hello_cpp" "${tmpdir}/hello.cpp" 2>&1); then
+    if compile_err=$("${TOOLCHAIN_DIR}/bin/clang++" -stdlib=libc++ -Wl,-rpath,"${TOOLCHAIN_DIR}/lib" -o "${tmpdir}/hello_cpp" "${tmpdir}/hello.cpp" 2>&1); then
         check "compile hello.cpp (libc++)" true
         check "run hello_cpp" "${tmpdir}/hello_cpp"
     else
@@ -138,7 +138,7 @@ EOF
     fi
 
     # C++ compilation with libstdc++ (if available on host)
-    if "${TOOLCHAIN_DIR}/bin/clang++" -stdlib=libstdc++ -o "${tmpdir}/hello_stdcpp" "${tmpdir}/hello.cpp" 2>/dev/null; then
+    if "${TOOLCHAIN_DIR}/bin/clang++" -stdlib=libstdc++ -Wl,-rpath,"${TOOLCHAIN_DIR}/lib" -o "${tmpdir}/hello_stdcpp" "${tmpdir}/hello.cpp" 2>/dev/null; then
         check "compile hello.cpp (libstdc++)" true
         check "run hello_stdcpp" "${tmpdir}/hello_stdcpp"
     else
@@ -165,7 +165,7 @@ int main() {
     return 0;
 }
 EOF
-    if "${TOOLCHAIN_DIR}/bin/clang++" -std=c++23 -stdlib=libc++ -o "${tmpdir}/cpp23" "${tmpdir}/cpp23.cpp" 2>/dev/null; then
+    if "${TOOLCHAIN_DIR}/bin/clang++" -std=c++23 -stdlib=libc++ -Wl,-rpath,"${TOOLCHAIN_DIR}/lib" -o "${tmpdir}/cpp23" "${tmpdir}/cpp23.cpp" 2>/dev/null; then
         check "compile C++23 features" true
         check "run C++23 binary" "${tmpdir}/cpp23"
     else

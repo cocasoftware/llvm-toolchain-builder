@@ -51,10 +51,9 @@ function Test-Stage1Toolchain {
 
     $clangCl = Join-Path $STAGE1_DIR 'bin\clang-cl.exe'
     $lldLink = Join-Path $STAGE1_DIR 'bin\lld-link.exe'
-    $llvmAr  = Join-Path $STAGE1_DIR 'bin\llvm-ar.exe'
-    $llvmRanlib = Join-Path $STAGE1_DIR 'bin\llvm-ranlib.exe'
+    $llvmLib = Join-Path $STAGE1_DIR 'bin\llvm-lib.exe'
 
-    foreach ($tool in @($clangCl, $lldLink, $llvmAr)) {
+    foreach ($tool in @($clangCl, $lldLink, $llvmLib)) {
         if (-not (Test-Path $tool)) {
             throw "Stage 1 tool not found: $tool"
         }
@@ -165,8 +164,7 @@ function Build-LLVMStage2 {
     $stage1Bin  = Join-Path $STAGE1_DIR 'bin'
     $clangCl   = ToForwardSlash (Join-Path $stage1Bin 'clang-cl.exe')
     $lldLink   = ToForwardSlash (Join-Path $stage1Bin 'lld-link.exe')
-    $llvmAr    = ToForwardSlash (Join-Path $stage1Bin 'llvm-ar.exe')
-    $llvmRanlib = ToForwardSlash (Join-Path $stage1Bin 'llvm-ranlib.exe')
+    $llvmLib   = ToForwardSlash (Join-Path $stage1Bin 'llvm-lib.exe')
     $llvmNm    = ToForwardSlash (Join-Path $stage1Bin 'llvm-nm.exe')
 
     # Projects — same as Stage 1 (full-featured)
@@ -188,8 +186,7 @@ function Build-LLVMStage2 {
         # Stage 1 clang-cl as host compiler
         "-DCMAKE_C_COMPILER=$clangCl",
         "-DCMAKE_CXX_COMPILER=$clangCl",
-        "-DCMAKE_AR=$llvmAr",
-        "-DCMAKE_RANLIB=$llvmRanlib",
+        "-DCMAKE_AR=$llvmLib",
         "-DCMAKE_NM=$llvmNm",
         "-DCMAKE_LINKER=$lldLink",
         '-DLLVM_USE_LINKER=lld',
