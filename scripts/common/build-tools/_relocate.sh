@@ -15,15 +15,19 @@ _patchelf_set_rpath() {
     local obj="$1"
     local rpath="$2"
     # First remove any existing DT_RPATH / DT_RUNPATH so --set-rpath has a
-    # clean slate. Modern patchelf 0.18+ honors this; ancient 0.9 may not.
-    patchelf --remove-rpath "${obj}"
+    # clean slate. patchelf is idempotent here — removing a non-existent
+    # rpath is a successful no-op in 0.18+.
+    patchelf --remove-rpath "${obj}" 2>/dev/null || true
     patchelf --set-rpath "${rpath}" "${obj}"
-    # Verify it took effect (paranoid check; helps catch silent failures
-    # when patchelf can't grow the dynamic section).
+    # Verify it took effect. If the dynamic section couldn't be enlarged
+    # (rare; happens on packed binaries), patchelf may silently drop the
+    # rpath. We MUST detect this — a missing rpath means the bundled libs
+    # won't be found at runtime.
     local actual
-    actual=$(patchelf --print-rpath "${obj}" 2>/dev/null || echo '<error>')
+    actual=$(patchelf --print-rpath "${obj}" 2>/dev/null)
     if [[ "${actual}" != "${rpath}" ]]; then
-        echo "[relocate] WARN: ${obj}: rpath mismatch — wanted '${rpath}', got '${actual}'" >&2
+        echo "[relocate] FATAL: ${obj}: rpath set failed — wanted '${rpath}', got '${actual}'" >&2
+        return 1
     fi
 }
 

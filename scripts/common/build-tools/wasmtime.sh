@@ -63,9 +63,10 @@ chmod +x "${TOOL_DIR}/bin/wasmtime"
 #    a musl-static binary so libgcc_s is unused but harmless to bundle.
 bundle_gcc_runtime_into_tool "${TOOL_DIR}" libgcc_s
 
-# 5. Patch rpath: bin/wasmtime → $ORIGIN/../lib (resolves to tools/wasmtime/lib/)
-set_rpath_origin "${TOOL_DIR}"
+# 5. Strip first (some strip versions may touch the dynamic section),
+#    then patchelf last so DT_RUNPATH is the final source of truth.
 strip_binaries   "${TOOL_DIR}"
+set_rpath_origin "${TOOL_DIR}"
 
 # 6. Verify: must have NO forbidden deps from the system, and NO unresolved
 verify_no_forbidden_deps "${TOOL_DIR}"
