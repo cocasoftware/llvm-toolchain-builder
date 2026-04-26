@@ -1,0 +1,619 @@
+name: Bundle Toolchain (reusable)
+# Reusable workflow that augments a Stage 2 LLVM toolchain with:
+#   - 17 bundled tools (cmake/ninja/git/python/pwsh/...)
+#   - 7 sysroots (linux-gnu/musl, mingw64-ucrt/msvcrt, wasi)
+#   - templates (setup.py, scripts/, cmake/, tests/, toolchain.json)
+#
+# Cache reuse design:
+#   1. Each tool has independent cache key with hashFiles of its build script.
+#      Bumping cmake version invalidates ONLY cmake's cache (not ninja/git/etc).
+#   2. Tools cache is LLVM-version-scoped (NOT variant-scoped), so cmake built
+#      with main's clang is reused for p2996 variant — saves ~70min on p2996.
+#   3. Sysroots cache is platform-INDEPENDENT (just headers/libs for targets),
+#      shared between x86_64 and arm64 host runners.
+#   4. Source tarballs cached globally in one shared dir.
+#
+# Inputs:
+#   - platform           linux-x86_64 / linux-aarch64
+#   - variant            main / p2996
+#   - llvm-version       e.g. 21.1.1
+#   - runner             ubuntu-latest / ubuntu-24.04-arm
+#   - image              docker image for tool builds (matches Stage 2 image)
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        required: true
+        type: string
+      variant:
+        required: true
+        type: string
+      llvm-version:
+        required: true
+        type: string
+      runner:
+        required: true
+        type: string
+      image:
+        required: true
+        type: string
+      stage2-artifact-name:
+        description: Name of the Stage 2 artifact to download (e.g. stage2-main-linux-x86_64)
+        required: true
+        type: string
+      stage2-archive-basename:
+        description: Filename inside the artifact, e.g. coca-toolchain-linux-x86_64
+        required: true
+        type: string
+      install-prefix:
+        description: Where to extract Stage 2 (e.g. /opt/coca-toolchain-linux-x86_64)
+        required: true
+        type: string
+
+jobs:
+  # ===========================================================================
+  # Bundle 7 sysroots (parallel, independent caches)
+  # ===========================================================================
+  bundle-sysroots:
+    name: Bundle Sysroots (${{ inputs.platform }})
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Each sysroot has its own cache for granular invalidation
+      - name: Cache x86_64-linux-gnu
+        id: cache-linux-gnu-x86
+        uses: actions/cache@v4
+        with:
+          path: /opt/tools-cache/sysroots/x86_64-linux-gnu
+          key: sysroot-x86_64-linux-gnu-v1-${{ hashFiles('scripts/common/build-sysroots/linux-gnu.sh', 'scripts/common/build-sysroots/lib.sh', 'scripts/common/tool-versions.sh') }}
+
+      - name: Cache aarch64-linux-gnu
+        id: cache-linux-gnu-arm
+        uses: actions/cache@v4
+        with:
+          path: /opt/tools-cache/sysroots/aarch64-linux-gnu
+          key: sysroot-aarch64-linux-gnu-v1-${{ hashFiles('scripts/common/build-sysroots/linux-gnu.sh', 'scripts/common/build-sysroots/lib.sh', 'scripts/common/tool-versions.sh') }}
+
+      - name: Cache x86_64-linux-musl
+        id: cache-linux-musl-x86
+        uses: actions/cache@v4
+        with:
+          path: /opt/tools-cache/sysroots/x86_64-linux-musl
+          key: sysroot-x86_64-linux-musl-v1-${{ hashFiles('scripts/common/build-sysroots/linux-musl.sh', 'scripts/common/build-sysroots/lib.sh', 'scripts/common/tool-versions.sh') }}
+
+      - name: Cache aarch64-linux-musl
+        id: cache-linux-musl-arm
+        uses: actions/cache@v4
+        with:
+          path: /opt/tools-cache/sysroots/aarch64-linux-musl
+          key: sysroot-aarch64-linux-musl-v1-${{ hashFiles('scripts/common/build-sysroots/linux-musl.sh', 'scripts/common/build-sysroots/lib.sh', 'scripts/common/tool-versions.sh') }}
+
+      - name: Cache mingw64-ucrt
+        id: cache-mingw-ucrt
+        uses: actions/cache@v4
+        with:
+          path: /opt/tools-cache/sysroots/x86_64-w64-mingw32-ucrt
+          key: sysroot-mingw64-ucrt-v1-${{ hashFiles('scripts/common/build-sysroots/mingw64.sh', 'scripts/common/build-sysroots/lib.sh', 'scripts/common/tool-versions.sh') }}
+
+      - name: Cache mingw64-msvcrt
+        id: cache-mingw-msvcrt
+        uses: actions/cache@v4
+        with:
+          path: /opt/tools-cache/sysroots/x86_64-w64-mingw32-msvcrt
+          key: sysroot-mingw64-msvcrt-v1-${{ hashFiles('scripts/common/build-sysroots/mingw64.sh', 'scripts/common/build-sysroots/lib.sh', 'scripts/common/tool-versions.sh') }}
+
+      - name: Cache wasm32-wasi
+        id: cache-wasi
+        uses: actions/cache@v4
+        with:
+          path: /opt/tools-cache/sysroots/wasm32-wasi
+          key: sysroot-wasm32-wasi-v1-${{ hashFiles('scripts/common/build-sysroots/wasi.sh', 'scripts/common/build-sysroots/lib.sh', 'scripts/common/tool-versions.sh') }}
+
+      - name: Build missing sysroots
+        env:
+          HIT_LINUX_GNU_X86: ${{ steps.cache-linux-gnu-x86.outputs.cache-hit }}
+          HIT_LINUX_GNU_ARM: ${{ steps.cache-linux-gnu-arm.outputs.cache-hit }}
+          HIT_LINUX_MUSL_X86: ${{ steps.cache-linux-musl-x86.outputs.cache-hit }}
+          HIT_LINUX_MUSL_ARM: ${{ steps.cache-linux-musl-arm.outputs.cache-hit }}
+          HIT_MINGW_UCRT: ${{ steps.cache-mingw-ucrt.outputs.cache-hit }}
+          HIT_MINGW_MSVCRT: ${{ steps.cache-mingw-msvcrt.outputs.cache-hit }}
+          HIT_WASI: ${{ steps.cache-wasi.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /opt/tools-cache/sysroots
+          sudo chown -R "$(id -u):$(id -g)" /opt/tools-cache
+
+          # Compute newline-separated list of "<name>:<arch>" pairs for missing
+          # sysroots. Use a file to avoid bash-quote-mangling inside docker run.
+          MISSING_FILE=/opt/tools-cache/.missing-sysroots
+          : > "${MISSING_FILE}"
+          [ "${HIT_LINUX_GNU_X86}"  = 'true' ] || echo 'linux-gnu:x86_64'   >> "${MISSING_FILE}"
+          [ "${HIT_LINUX_GNU_ARM}"  = 'true' ] || echo 'linux-gnu:aarch64'  >> "${MISSING_FILE}"
+          [ "${HIT_LINUX_MUSL_X86}" = 'true' ] || echo 'linux-musl:x86_64'  >> "${MISSING_FILE}"
+          [ "${HIT_LINUX_MUSL_ARM}" = 'true' ] || echo 'linux-musl:aarch64' >> "${MISSING_FILE}"
+          # mingw64.sh produces both UCRT and MSVCRT in one run; trigger if either misses
+          if [ "${HIT_MINGW_UCRT}" != 'true' ] || [ "${HIT_MINGW_MSVCRT}" != 'true' ]; then
+              echo 'mingw64:x86_64' >> "${MISSING_FILE}"
+          fi
+          [ "${HIT_WASI}" = 'true' ] || echo 'wasi:none' >> "${MISSING_FILE}"
+
+          if [ ! -s "${MISSING_FILE}" ]; then
+              echo "All sysroots cached; skipping build."
+              exit 0
+          fi
+          echo "Sysroots to build:"
+          cat "${MISSING_FILE}"
+
+          docker run --rm \
+            -v "${{ github.workspace }}:/src:ro" \
+            -v /opt/tools-cache:/opt/tools-cache \
+            ubuntu:16.04 \
+            bash -c '
+              set -euo pipefail
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                ca-certificates curl xz-utils binutils file dpkg-dev
+              while IFS=: read -r name arch; do
+                  echo "===> Building sysroot ${name} arch=${arch}"
+                  case "${name}" in
+                      linux-gnu)   bash /src/scripts/common/build-sysroots/linux-gnu.sh  "${arch}" ;;
+                      linux-musl)  bash /src/scripts/common/build-sysroots/linux-musl.sh "${arch}" ;;
+                      mingw64)     bash /src/scripts/common/build-sysroots/mingw64.sh    "${arch}" ;;
+                      wasi)        bash /src/scripts/common/build-sysroots/wasi.sh ;;
+                      *)           echo "Unknown sysroot: ${name}"; exit 1 ;;
+                  esac
+              done < /opt/tools-cache/.missing-sysroots
+              rm -f /opt/tools-cache/.missing-sysroots
+            '
+
+      - name: Package sysroots artifact
+        run: |
+          cd /opt/tools-cache
+          tar cJf /tmp/sysroots-${{ inputs.platform }}.tar.xz sysroots/
+          ls -lh /tmp/sysroots-*.tar.xz
+
+      - name: Upload sysroots artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sysroots-${{ inputs.platform }}
+          path: /tmp/sysroots-${{ inputs.platform }}.tar.xz
+          retention-days: 7
+          compression-level: 0
+
+  # ===========================================================================
+  # Bundle 17 tools (each with independent cache via composite action)
+  # ===========================================================================
+  bundle-tools:
+    name: Bundle Tools (${{ inputs.variant }} / ${{ inputs.platform }})
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Stage 2 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.stage2-artifact-name }}
+          path: /tmp/stage2-dl
+
+      - name: Extract Stage 2 to install prefix
+        run: |
+          sudo mkdir -p '${{ inputs.install-prefix }}'
+          # The artifact contains <basename>.tar.xz; the archive itself contains
+          # a top-level <basename>/ directory.
+          tar_dir="$(dirname '${{ inputs.install-prefix }}')"
+          sudo tar -xJf "/tmp/stage2-dl/${{ inputs.stage2-archive-basename }}.tar.xz" -C "${tar_dir}"
+          sudo chown -R "$(id -u):$(id -g)" '${{ inputs.install-prefix }}'
+
+      # Bootstrap (GCC + openssl/zlib/curl/etc.) is needed by build-tools
+      # scripts that link against bootstrap libs (git uses libcurl,
+      # python uses openssl/libffi, etc.). It is built and cached by the
+      # parent workflow's `bootstrap` job; we restore the same cache here.
+      # Note: x64 uses v9, arm64 uses v1 — these versions are independent.
+      - name: Restore bootstrap cache (x86_64)
+        if: inputs.platform == 'linux-x86_64'
+        id: cache-bootstrap-x64
+        uses: actions/cache/restore@v4
+        with:
+          path: /opt/bootstrap
+          key: x64-bootstrap-v9-${{ hashFiles('scripts/bootstrap/common-bootstrap.sh', 'scripts/bootstrap/ubuntu-16.04.sh', 'scripts/common/versions.sh') }}
+          restore-keys: |
+            x64-bootstrap-v9-
+
+      - name: Restore bootstrap cache (aarch64)
+        if: inputs.platform == 'linux-aarch64'
+        id: cache-bootstrap-arm64
+        uses: actions/cache/restore@v4
+        with:
+          path: /opt/bootstrap
+          key: arm64-bootstrap-v1-${{ hashFiles('scripts/bootstrap/common-bootstrap.sh', 'scripts/bootstrap/ubuntu-16.04.sh', 'scripts/common/versions.sh') }}
+          restore-keys: |
+            arm64-bootstrap-v1-
+
+      - name: Verify bootstrap available
+        run: |
+          if [ ! -d /opt/bootstrap ] || [ ! -x /opt/bootstrap/bin/gcc ]; then
+              echo "FATAL: /opt/bootstrap missing or invalid; cannot build tools that need bootstrap libs."
+              echo "Expected this to be restored from the parent workflow's bootstrap job cache."
+              ls -la /opt 2>/dev/null || true
+              exit 1
+          fi
+          echo "[bootstrap] OK at /opt/bootstrap"
+          /opt/bootstrap/bin/gcc --version | head -1
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghcli /opt/hostedtoolcache /tmp/stage2-dl || true
+          df -h /
+
+      - name: Load tool versions into env
+        run: |
+          set -e
+          source scripts/common/tool-versions.sh
+          # Export TOOL_*_VERSION and SYSROOT_*_VERSION as job env so the
+          # composite action's cache-key inputs reflect the right values.
+          while IFS='=' read -r key val; do
+              # Strip quotes if any
+              val="${val%\"}"; val="${val#\"}"
+              echo "${key}=${val}" >> "$GITHUB_ENV"
+          done < <(set | grep -E '^(TOOL_|SYSROOT_)' )
+
+      # ── One global cache for all tool source tarballs ────────────────────
+      - name: Cache tool source tarballs
+        uses: actions/cache@v4
+        with:
+          path: /opt/tools-cache/sources
+          key: tool-sources-v1-${{ hashFiles('scripts/common/tool-versions.sh') }}
+          restore-keys: |
+            tool-sources-v1-
+
+      - name: Prepare tools-cache dir
+        run: |
+          sudo mkdir -p /opt/tools-cache/sources /opt/tools-cache/built /opt/tools-cache/work
+          sudo chown -R "$(id -u):$(id -g)" /opt/tools-cache
+
+      # ── Tier 0 (independent, parallel-friendly): 14 tools ────────────────
+      # NOTE: We run sequentially here for simplicity. Each has its own cache.
+
+      # Download-only tools (fast)
+      - name: Build wasmtime
+        uses: ./.github/actions/build-tool
+        with:
+          tool: wasmtime
+          version: ${{ env.TOOL_WASMTIME_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Build jfrog
+        uses: ./.github/actions/build-tool
+        with:
+          tool: jfrog
+          version: ${{ env.TOOL_JFROG_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Build glab
+        uses: ./.github/actions/build-tool
+        with:
+          tool: glab
+          version: ${{ env.TOOL_GLAB_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Build rust
+        uses: ./.github/actions/build-tool
+        with:
+          tool: rust
+          version: ${{ env.TOOL_RUST_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      # Compiled tools (slower)
+      - name: Build ninja
+        uses: ./.github/actions/build-tool
+        with:
+          tool: ninja
+          version: ${{ env.TOOL_NINJA_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+          extra-apt-packages: python3
+
+      - name: Build rsync
+        uses: ./.github/actions/build-tool
+        with:
+          tool: rsync
+          version: ${{ env.TOOL_RSYNC_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Build cmake
+        uses: ./.github/actions/build-tool
+        with:
+          tool: cmake
+          version: ${{ env.TOOL_CMAKE_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Build perl
+        uses: ./.github/actions/build-tool
+        with:
+          tool: perl
+          version: ${{ env.TOOL_PERL_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Build graphviz
+        uses: ./.github/actions/build-tool
+        with:
+          tool: graphviz
+          version: ${{ env.TOOL_GRAPHVIZ_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+          extra-apt-packages: pkg-config
+
+      - name: Build git
+        uses: ./.github/actions/build-tool
+        with:
+          tool: git
+          version: ${{ env.TOOL_GIT_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      # Python deps (must precede python.sh)
+      - name: Build bzip2
+        uses: ./.github/actions/build-tool
+        with:
+          tool: bzip2
+          version: ${{ env.TOOL_BZIP2_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Build sqlite3
+        uses: ./.github/actions/build-tool
+        with:
+          tool: sqlite3
+          version: ${{ env.TOOL_SQLITE_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Build expat
+        uses: ./.github/actions/build-tool
+        with:
+          tool: expat
+          version: ${{ env.TOOL_EXPAT_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      # pwsh deps (must precede pwsh.sh)
+      - name: Build openssl11 (pwsh dep)
+        uses: ./.github/actions/build-tool
+        with:
+          tool: openssl11
+          version: ${{ env.TOOL_OPENSSL11_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Build icu (pwsh dep)
+        uses: ./.github/actions/build-tool
+        with:
+          tool: icu
+          version: ${{ env.TOOL_ICU_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Build krb5 (pwsh dep)
+        uses: ./.github/actions/build-tool
+        with:
+          tool: krb5
+          version: ${{ env.TOOL_KRB5_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      # ── Tier 1 (depends on Tier 0): 3 tools ──────────────────────────────
+      - name: Build doxygen
+        uses: ./.github/actions/build-tool
+        with:
+          tool: doxygen
+          version: ${{ env.TOOL_DOXYGEN_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+          extra-apt-packages: bison flex
+
+      - name: Build python (CPython 3.14 from source)
+        uses: ./.github/actions/build-tool
+        with:
+          tool: python
+          version: ${{ env.TOOL_PYTHON_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Build pwsh
+        uses: ./.github/actions/build-tool
+        with:
+          tool: pwsh
+          version: ${{ env.TOOL_PWSH_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      # ── Tier 2 (depends on Python): 2 tools ──────────────────────────────
+      - name: Build conan
+        uses: ./.github/actions/build-tool
+        with:
+          tool: conan
+          version: ${{ env.TOOL_CONAN_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Build emsdk
+        uses: ./.github/actions/build-tool
+        with:
+          tool: emsdk
+          version: ${{ env.TOOL_EMSDK_VERSION }}
+          platform: ${{ inputs.platform }}
+          llvm-version: ${{ inputs.llvm-version }}
+          stage2-prefix: ${{ inputs.install-prefix }}
+          image: ${{ inputs.image }}
+
+      - name: Package tools-built artifact
+        run: |
+          cd /opt/tools-cache
+          tar cJf /tmp/tools-${{ inputs.variant }}-${{ inputs.platform }}.tar.xz built/
+          ls -lh /tmp/tools-*.tar.xz
+
+      - name: Upload tools artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tools-${{ inputs.variant }}-${{ inputs.platform }}
+          path: /tmp/tools-${{ inputs.variant }}-${{ inputs.platform }}.tar.xz
+          retention-days: 7
+          compression-level: 0
+
+  # ===========================================================================
+  # Assemble: combine Stage 2 + sysroots + tools + templates → final tar.xz
+  # ===========================================================================
+  assemble:
+    name: Assemble Toolchain (${{ inputs.variant }} / ${{ inputs.platform }})
+    needs: [bundle-sysroots, bundle-tools]
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Stage 2 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.stage2-artifact-name }}
+          path: /tmp/dl-stage2
+
+      - name: Download sysroots artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sysroots-${{ inputs.platform }}
+          path: /tmp/dl-sysroots
+
+      - name: Download tools artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tools-${{ inputs.variant }}-${{ inputs.platform }}
+          path: /tmp/dl-tools
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghcli /opt/hostedtoolcache || true
+          df -h /
+
+      - name: Assemble final toolchain tree
+        run: |
+          set -euo pipefail
+          install_parent="$(dirname '${{ inputs.install-prefix }}')"
+          sudo mkdir -p "${install_parent}"
+
+          # 1. Extract Stage 2 (tar contains <basename>/ at top level)
+          sudo tar -xJf "/tmp/dl-stage2/${{ inputs.stage2-archive-basename }}.tar.xz" -C "${install_parent}"
+          sudo chown -R "$(id -u):$(id -g)" '${{ inputs.install-prefix }}'
+
+          # 2. Extract sysroots tarball: contents are sysroots/<triple>/...
+          #    Extract directly into install_prefix to land at install_prefix/sysroots/<triple>/
+          tar -xJf "/tmp/dl-sysroots/sysroots-${{ inputs.platform }}.tar.xz" \
+              -C '${{ inputs.install-prefix }}'
+
+          # 3. Extract tools tarball: contents are built/<tool>/...
+          #    Extract into /opt/tools-cache so contents land at /opt/tools-cache/built/<tool>/
+          sudo mkdir -p /opt/tools-cache
+          sudo tar -xJf "/tmp/dl-tools/tools-${{ inputs.variant }}-${{ inputs.platform }}.tar.xz" \
+              -C /opt/tools-cache
+          sudo chown -R "$(id -u):$(id -g)" /opt/tools-cache
+
+          # 4. Run scaffold: copy templates (setup.py, scripts/, cmake/, tests/,
+          #    toolchain.json, README.md) + every tool from /opt/tools-cache/built/
+          #    into install_prefix/, then regenerate manifest.json via bundled python.
+          export INSTALL_PREFIX='${{ inputs.install-prefix }}'
+          export VARIANT='${{ inputs.variant }}'
+          export TEMPLATES_DIR='${{ github.workspace }}/templates'
+          export TOOLS_CACHE_DIR=/opt/tools-cache
+          bash '${{ github.workspace }}/scripts/common/scaffold-toolchain.sh'
+
+      - name: Validate final toolchain structure
+        run: |
+          set -e
+          base='${{ inputs.install-prefix }}'
+          echo "Final toolchain layout:"
+          ls -la "${base}"
+          echo
+          echo "Tools:"
+          ls "${base}/tools/" | sort
+          echo
+          echo "Sysroots:"
+          ls "${base}/sysroots/" | sort
+          echo
+          # Smoke test: setup.py info
+          if [ -x "${base}/tools/python/bin/python3" ]; then
+              "${base}/tools/python/bin/python3" "${base}/setup.py" info || true
+          fi
+
+      - name: Repackage final toolchain tar.xz
+        run: |
+          install_parent="$(dirname '${{ inputs.install-prefix }}')"
+          install_basename="$(basename '${{ inputs.install-prefix }}')"
+          archive_basename="${{ inputs.stage2-archive-basename }}"
+          # Rename install dir to the archive basename if different (so tar contents match)
+          if [ "${install_basename}" != "${archive_basename}" ]; then
+              mv "${{ inputs.install-prefix }}" "${install_parent}/${archive_basename}"
+          fi
+          cd "${install_parent}"
+          XZ_OPT='-T0 -6' tar cJf "/tmp/${archive_basename}.tar.xz" "${archive_basename}"
+          ls -lh "/tmp/${archive_basename}.tar.xz"
+
+      - name: Upload final toolchain artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coca-toolchain-${{ inputs.variant }}-${{ inputs.platform }}
+          path: /tmp/${{ inputs.stage2-archive-basename }}.tar.xz
+          retention-days: 30
+          compression-level: 0

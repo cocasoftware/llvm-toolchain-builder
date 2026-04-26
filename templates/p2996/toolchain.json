@@ -1,0 +1,111 @@
+{
+  "toolchain_version": "1.0.0-p2996",
+  "llvm_version": "21.0.0git",
+  "llvm_fork": "bloomberg/clang-p2996",
+  "reflection_support": true,
+  "profiles": {
+    "win-x64": {
+      "target_triple": "x86_64-pc-windows-msvc",
+      "sysroot": "sysroots/x86_64-windows-msvc",
+      "runtime": "msvc",
+      "linker": "lld-link",
+      "sdk_version": "10.0.26100.0",
+      "msvc_version": "14.50",
+      "min_os_version": "6.1",
+      "rust_target": "x86_64-pc-windows-msvc"
+    },
+    "win-x64-clang": {
+      "target_triple": "x86_64-pc-windows-msvc",
+      "sysroot": "sysroots/x86_64-windows-msvc",
+      "runtime": "msvc",
+      "driver": "clang",
+      "linker": "lld-link",
+      "sdk_version": "10.0.26100.0",
+      "msvc_version": "14.50",
+      "min_os_version": "6.1",
+      "rust_target": "x86_64-pc-windows-msvc"
+    },
+    "linux-x64": {
+      "target_triple": "x86_64-unknown-linux-gnu",
+      "sysroot": "sysroots/x86_64-linux-gnu",
+      "runtime": "llvm",
+      "linker": "ld.lld",
+      "glibc_version": "2.19",
+      "kernel_version": "3.13",
+      "rust_target": "x86_64-unknown-linux-gnu"
+    },
+    "linux-arm64": {
+      "target_triple": "aarch64-unknown-linux-gnu",
+      "sysroot": "sysroots/aarch64-linux-gnu",
+      "runtime": "llvm",
+      "linker": "ld.lld",
+      "glibc_version": "2.23",
+      "kernel_version": "4.4",
+      "rust_target": "aarch64-unknown-linux-gnu"
+    },
+    "linux-x64-kylin": {
+      "target_triple": "x86_64-unknown-linux-gnu",
+      "sysroot": "sysroots/x86_64-linux-gnu",
+      "runtime": "llvm",
+      "linker": "ld.lld",
+      "glibc_version": "2.19",
+      "kernel_version": "3.13",
+      "rust_target": "x86_64-unknown-linux-gnu"
+    },
+    "linux-arm64-kylin": {
+      "target_triple": "aarch64-unknown-linux-gnu",
+      "sysroot": "sysroots/aarch64-linux-gnu",
+      "runtime": "llvm",
+      "linker": "ld.lld",
+      "glibc_version": "2.23",
+      "kernel_version": "4.4",
+      "rust_target": "aarch64-unknown-linux-gnu"
+    },
+    "win-x64-mingw-ucrt": {
+      "target_triple": "x86_64-w64-mingw32",
+      "sysroot": "sysroots/x86_64-w64-mingw32-ucrt",
+      "runtime": "mingw",
+      "linker": "ld.lld",
+      "crt": "ucrt",
+      "min_os_version": "6.1",
+      "rust_target": "x86_64-pc-windows-gnu"
+    },
+    "win-x64-mingw-msvcrt": {
+      "target_triple": "x86_64-w64-mingw32",
+      "sysroot": "sysroots/x86_64-w64-mingw32-msvcrt",
+      "runtime": "mingw",
+      "linker": "ld.lld",
+      "crt": "msvcrt",
+      "min_os_version": "6.1",
+      "rust_target": "x86_64-pc-windows-gnu"
+    },
+    "wasm-wasi": {
+      "target_triple": "wasm32-wasip1",
+      "sysroot": "sysroots/wasm32-wasi",
+      "runtime": "wasi",
+      "linker": "wasm-ld",
+      "rust_target": "wasm32-wasip1"
+    },
+    "wasm-emscripten": {
+      "target_triple": "wasm32-unknown-emscripten",
+      "sysroot": null,
+      "runtime": "emscripten",
+      "linker": "wasm-ld",
+      "emsdk_path": "tools/emsdk",
+      "rust_target": "wasm32-unknown-emscripten"
+    }
+  },
+  "reflection": {
+    "compile_flags": ["-std=c++26", "-freflection"],
+    "include_path": "include/c++/v1",
+    "lib_path": "lib",
+    "link_flags_msvc": ["-fuse-ld=lld-link"],
+    "libraries": {
+      "static": "libc++.lib",
+      "shared_import": "c++.lib",
+      "shared_dll": "c++.dll"
+    },
+    "abi_library": "vcruntime",
+    "note": "libc++ built from p2996 fork with vcruntime ABI for Windows"
+  }
+}

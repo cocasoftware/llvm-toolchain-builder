@@ -16,6 +16,7 @@ export TOOLCHAIN_DIR
 source "${COMMON_DIR}/verify-lib.sh"
 source "${COMMON_DIR}/verify-toolchain.sh"
 source "${COMMON_DIR}/verify-third-party.sh"
+source "${COMMON_DIR}/verify-tools.sh"
 
 main() {
     log "Portability verification on $(cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2 | tr -d '"' || echo 'unknown')"
@@ -38,6 +39,16 @@ main() {
     test_clang_tidy "${tmpdir}"
     test_third_party_libs "${tmpdir}"
     test_dependencies
+
+    # New: bundled tools (tools/, sysroots/, scaffolding)
+    if [[ -d "${TOOLCHAIN_DIR}/tools" ]]; then
+        test_bundled_tools_exist
+        test_bundled_tools_run
+        test_bundled_tools_no_forbidden_deps
+        test_toolchain_scaffolding
+    else
+        log "tools/ dir not present; skipping bundled-tool tests (Stage-2-only artifact?)"
+    fi
 
     rm -rf "${tmpdir}"
 

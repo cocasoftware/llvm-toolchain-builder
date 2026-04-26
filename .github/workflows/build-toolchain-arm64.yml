@@ -27,7 +27,10 @@ on:
       - 'scripts/bootstrap/**'
       - 'scripts/linux-arm64/**'
       - 'scripts/linux/**'
+      - 'templates/**'
+      - '.github/actions/build-tool/**'
       - '.github/workflows/build-toolchain-arm64.yml'
+      - '.github/workflows/_bundle.yml'
 
 env:
   BOOTSTRAP_PREFIX: /opt/bootstrap
@@ -293,12 +296,12 @@ jobs:
               bash /src/scripts/linux-arm64/build-llvm-stage2.sh
             '
 
-      - name: Upload main toolchain
+      - name: Upload Stage 2 main intermediate (arm64)
         uses: actions/upload-artifact@v4
         with:
-          name: coca-toolchain-linux-aarch64
+          name: stage2-main-linux-aarch64
           path: /tmp/coca-toolchain-linux-aarch64.tar.xz
-          retention-days: 30
+          retention-days: 7
           compression-level: 0
 
   # ===========================================================================
@@ -378,20 +381,55 @@ jobs:
               bash /src/scripts/linux-arm64/build-llvm-stage2.sh
             '
 
-      - name: Upload p2996 toolchain
+      - name: Upload Stage 2 p2996 intermediate (arm64)
         uses: actions/upload-artifact@v4
         with:
-          name: coca-toolchain-p2996-linux-aarch64
+          name: stage2-p2996-linux-aarch64
           path: /tmp/coca-toolchain-p2996-linux-aarch64.tar.xz
-          retention-days: 30
+          retention-days: 7
           compression-level: 0
+
+  # ===========================================================================
+  # Bundle main toolchain (sysroots + tools + templates)
+  # ===========================================================================
+  bundle-main:
+    name: Bundle (main / arm64)
+    needs: stage2-main
+    uses: ./.github/workflows/_bundle.yml
+    with:
+      platform: linux-aarch64
+      variant: main
+      llvm-version: ${{ github.event.inputs.llvm_version || '21.1.1' }}
+      runner: ubuntu-24.04-arm
+      image: arm64v8/ubuntu:16.04
+      stage2-artifact-name: stage2-main-linux-aarch64
+      stage2-archive-basename: coca-toolchain-linux-aarch64
+      install-prefix: /opt/coca-toolchain-linux-aarch64
+
+  # ===========================================================================
+  # Bundle p2996 toolchain
+  # ===========================================================================
+  bundle-p2996:
+    name: Bundle (p2996 / arm64)
+    needs: stage2-p2996
+    if: ${{ github.event.inputs.build_p2996 != 'false' }}
+    uses: ./.github/workflows/_bundle.yml
+    with:
+      platform: linux-aarch64
+      variant: p2996
+      llvm-version: ${{ github.event.inputs.llvm_version || '21.1.1' }}
+      runner: ubuntu-24.04-arm
+      image: arm64v8/ubuntu:16.04
+      stage2-artifact-name: stage2-p2996-linux-aarch64
+      stage2-archive-basename: coca-toolchain-p2996-linux-aarch64
+      install-prefix: /opt/coca-toolchain-p2996-linux-aarch64
 
   # ===========================================================================
   # Job 5: Portability verification
   # ===========================================================================
   verify:
     name: Verify ARM64 (${{ matrix.distro }})
-    needs: [stage2-main]
+    needs: [bundle-main]
     runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
@@ -410,7 +448,7 @@ jobs:
       - name: Download main toolchain
         uses: actions/download-artifact@v4
         with:
-          name: coca-toolchain-linux-aarch64
+          name: coca-toolchain-main-linux-aarch64
           path: /tmp
 
       - name: Extract toolchain
@@ -436,7 +474,7 @@ jobs:
   # ===========================================================================
   verify-p2996:
     name: Verify p2996 ARM64 (${{ matrix.distro }})
-    needs: [stage2-p2996]
+    needs: [bundle-p2996]
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
     runs-on: ubuntu-24.04-arm
     strategy:

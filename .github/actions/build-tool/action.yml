@@ -1,0 +1,97 @@
+name: Build a single bundled tool with cache
+description: |
+  Wraps the build of one tool from scripts/common/build-tools/<tool>.sh
+  with a per-tool actions/cache step. Maximizes reuse: editing one tool's
+  build script invalidates only that tool's cache.
+inputs:
+  tool:
+    description: Tool name (must match scripts/common/build-tools/<tool>.sh)
+    required: true
+  version:
+    description: Tool version (used in cache key only)
+    required: true
+  platform:
+    description: Platform identifier (linux-x86_64 / linux-aarch64)
+    required: true
+  llvm-version:
+    description: LLVM version (used in cache key for libc++ ABI invariance)
+    required: true
+  cache-dir:
+    description: Path to /opt/tools-cache root
+    required: false
+    default: /opt/tools-cache
+  stage2-prefix:
+    description: Stage 2 LLVM install prefix
+    required: false
+    default: /opt/coca-toolchain
+  bootstrap-prefix:
+    description: Bootstrap GCC + libs install prefix
+    required: false
+    default: /opt/bootstrap
+  image:
+    description: Docker image to build inside (Ubuntu 16.04 by default for max GLIBC compat)
+    required: false
+    default: ubuntu:16.04
+  extra-apt-packages:
+    description: Additional apt packages to install in the build container
+    required: false
+    default: ''
+
+outputs:
+  cache-hit:
+    description: Whether the per-tool cache was hit
+    value: ${{ steps.cache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Cache built tool ${{ inputs.tool }}
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.cache-dir }}/built/${{ inputs.tool }}
+        key: tool-${{ inputs.tool }}-v${{ inputs.version }}-${{ inputs.platform }}-llvm${{ inputs.llvm-version }}-${{ hashFiles(format('scripts/common/build-tools/{0}.sh', inputs.tool), 'scripts/common/build-tools/_*.sh', 'scripts/common/tool-versions.sh') }}
+
+    - name: Build ${{ inputs.tool }} (cache miss)
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo mkdir -p '${{ inputs.cache-dir }}/sources' \
+                      '${{ inputs.cache-dir }}/built' \
+                      '${{ inputs.cache-dir }}/work'
+        sudo chown -R "$(id -u):$(id -g)" '${{ inputs.cache-dir }}'
+
+        docker run --rm \
+          -v "${{ github.workspace }}:/src:ro" \
+          -v "${{ inputs.cache-dir }}:/opt/tools-cache" \
+          -v "${{ inputs.stage2-prefix }}:${{ inputs.stage2-prefix }}:ro" \
+          -v "${{ inputs.bootstrap-prefix }}:${{ inputs.bootstrap-prefix }}:ro" \
+          -e STAGE2_PREFIX='${{ inputs.stage2-prefix }}' \
+          -e BOOTSTRAP_PREFIX='${{ inputs.bootstrap-prefix }}' \
+          -e TOOLS_CACHE_DIR=/opt/tools-cache \
+          -e TOOL_NAME='${{ inputs.tool }}' \
+          -e PLATFORM='${{ inputs.platform }}' \
+          '${{ inputs.image }}' \
+          bash -c "
+            set -euo pipefail
+            apt-get update -qq
+            # Common build-time prerequisites needed by most tools.
+            # perl   — openssl Configure script
+            # python3 — ninja bootstrap, emsdk fallback
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              ca-certificates curl file patchelf xz-utils zstd unzip git \
+              build-essential pkg-config m4 autoconf automake libtool bison flex \
+              gettext texinfo perl python3 ${{ inputs.extra-apt-packages }}
+            bash /src/scripts/common/build-tools/${{ inputs.tool }}.sh
+          "
+
+    - name: Report cache status
+      shell: bash
+      run: |
+        if [ '${{ steps.cache.outputs.cache-hit }}' = 'true' ]; then
+          echo "::notice title=Tool cache hit::${{ inputs.tool }} v${{ inputs.version }} restored from cache"
+        else
+          echo "::notice title=Tool built::${{ inputs.tool }} v${{ inputs.version }} compiled fresh"
+        fi
+        ls -la '${{ inputs.cache-dir }}/built/${{ inputs.tool }}' 2>/dev/null | head -10 || true
