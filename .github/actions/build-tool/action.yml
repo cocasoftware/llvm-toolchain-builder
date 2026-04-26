@@ -79,10 +79,25 @@ runs:
             # Common build-time prerequisites needed by most tools.
             # perl   — openssl Configure script
             # python3 — ninja bootstrap, emsdk fallback
+            # NOTE: patchelf intentionally NOT in the apt list — Ubuntu 16.04
+            # ships v0.9 which has buggy DT_RUNPATH handling. We download a
+            # modern static-ish patchelf below.
             DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-              ca-certificates curl file patchelf xz-utils zstd unzip git \
+              ca-certificates curl file xz-utils zstd unzip git \
               build-essential pkg-config m4 autoconf automake libtool bison flex \
               gettext texinfo perl python3 ${{ inputs.extra-apt-packages }}
+            # Install modern patchelf (NixOS official releases): handles
+            # DT_RUNPATH / DT_RPATH correctly; --remove-rpath / --set-rpath
+            # behave deterministically. Falls back to apt patchelf only if
+            # the download fails (offline mode).
+            arch=\$(uname -m)
+            patchelf_url=\"https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-\${arch}.tar.gz\"
+            if ! curl -fsSL \"\${patchelf_url}\" | tar xz -C /usr/local; then
+                echo 'WARN: patchelf 0.18 download failed, falling back to apt'
+                apt-get install -y --no-install-recommends patchelf
+            fi
+            command -v patchelf
+            patchelf --version
             bash /src/scripts/common/build-tools/${{ inputs.tool }}.sh
           "
 

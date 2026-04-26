@@ -115,7 +115,7 @@ add_rpath_to_lib_dir "${TOOL_DIR}" "${TOOL_DIR}/lib"
 # Shared libs in tools/pwsh/lib/ resolve siblings via $ORIGIN
 while IFS= read -r -d '' lib; do
     if file "${lib}" 2>/dev/null | grep -q "ELF.*shared"; then
-        patchelf --force-rpath --set-rpath '$ORIGIN' "${lib}" 2>/dev/null || true
+        _patchelf_set_rpath "${lib}" '$ORIGIN'
     fi
 done < <(find "${TOOL_DIR}/lib" -type f -name '*.so*' -print0 2>/dev/null)
 

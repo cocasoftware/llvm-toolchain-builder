@@ -144,9 +144,12 @@ fix_absolute_symlinks "${SYSROOT_DIR}"
 for libc_so in "${SYSROOT_DIR}/usr/lib/${TRIPLE}/libc.so" \
                "${SYSROOT_DIR}/usr/lib/${TRIPLE}/libpthread.so" \
                "${SYSROOT_DIR}/usr/lib/${TRIPLE}/libm.so"; do
-    if [[ -f "${libc_so}" ]] && head -1 "${libc_so}" | grep -q "GROUP"; then
+    # A linker script is a small ASCII text file containing GROUP(...) or
+    # OUTPUT_FORMAT(...) directives. A real shared library would be ELF.
+    if [[ -f "${libc_so}" ]] && grep -qE '^(GROUP|OUTPUT_FORMAT|INPUT)' "${libc_so}" 2>/dev/null; then
         log "  patching linker script ${libc_so#${SYSROOT_DIR}}"
         # Replace /lib/<triple>/ → lib/<triple>/, /usr/lib/<triple>/ → usr/lib/<triple>/
+        # The leading slash is removed so clang's --sysroot prepends sysroot dir.
         sed -i \
             -e "s|/lib/${TRIPLE}/|lib/${TRIPLE}/|g" \
             -e "s|/usr/lib/${TRIPLE}/|usr/lib/${TRIPLE}/|g" \
