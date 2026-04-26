@@ -101,15 +101,15 @@ jobs:
       - name: Package bootstrap for artifact
         run: |
           cd /opt
-          tar cf /tmp/bootstrap-tools-arm64.tar bootstrap/
+          XZ_OPT='-T0 -3' tar cJf /tmp/bootstrap-tools-arm64.tar.xz bootstrap/
 
       - name: Upload bootstrap artifact
         uses: actions/upload-artifact@v4
         with:
           name: bootstrap-tools-arm64
-          path: /tmp/bootstrap-tools-arm64.tar
+          path: /tmp/bootstrap-tools-arm64.tar.xz
           retention-days: 7
-          compression-level: 1
+          compression-level: 0
 
   # ===========================================================================
   # Job 2: LLVM Stage 1 — minimal clang + lld using bootstrap GCC
@@ -149,7 +149,7 @@ jobs:
         run: |
           sudo mkdir -p /opt/bootstrap
           cd /opt
-          sudo tar xf /tmp/artifacts/bootstrap-tools-arm64.tar
+          sudo tar xf /tmp/artifacts/bootstrap-tools-arm64.tar.xz
           rm -rf /tmp/artifacts
 
       - name: Cache LLVM source
@@ -200,15 +200,15 @@ jobs:
       - name: Package Stage 1 for artifact
         run: |
           cd /opt
-          tar cf /tmp/stage1-install-arm64.tar stage1/
+          XZ_OPT='-T0 -3' tar cJf /tmp/stage1-install-arm64.tar.xz stage1/
 
       - name: Upload Stage 1 artifact
         uses: actions/upload-artifact@v4
         with:
           name: stage1-install-arm64
-          path: /tmp/stage1-install-arm64.tar
+          path: /tmp/stage1-install-arm64.tar.xz
           retention-days: 7
-          compression-level: 1
+          compression-level: 0
 
   # ===========================================================================
   # Job 3: LLVM Stage 2 — main toolchain (full suite, self-hosted)
@@ -259,8 +259,8 @@ jobs:
         run: |
           sudo mkdir -p /opt/bootstrap /opt/stage1
           cd /opt
-          sudo tar xf /tmp/artifacts/bootstrap-tools-arm64.tar
-          sudo tar xf /tmp/artifacts-s1/stage1-install-arm64.tar
+          sudo tar xf /tmp/artifacts/bootstrap-tools-arm64.tar.xz
+          sudo tar xf /tmp/artifacts-s1/stage1-install-arm64.tar.xz
           rm -rf /tmp/artifacts /tmp/artifacts-s1
 
       - name: Cache LLVM source
@@ -299,6 +299,7 @@ jobs:
           name: coca-toolchain-linux-aarch64
           path: /tmp/coca-toolchain-linux-aarch64.tar.xz
           retention-days: 30
+          compression-level: 0
 
   # ===========================================================================
   # Job 4: LLVM Stage 2 — p2996 (Bloomberg C++ reflection fork)
@@ -350,8 +351,8 @@ jobs:
         run: |
           sudo mkdir -p /opt/bootstrap /opt/stage1
           cd /opt
-          sudo tar xf /tmp/artifacts/bootstrap-tools-arm64.tar
-          sudo tar xf /tmp/artifacts-s1/stage1-install-arm64.tar
+          sudo tar xf /tmp/artifacts/bootstrap-tools-arm64.tar.xz
+          sudo tar xf /tmp/artifacts-s1/stage1-install-arm64.tar.xz
           rm -rf /tmp/artifacts /tmp/artifacts-s1
 
       - name: Build LLVM Stage 2 (p2996)
@@ -383,6 +384,7 @@ jobs:
           name: coca-toolchain-p2996-linux-aarch64
           path: /tmp/coca-toolchain-p2996-linux-aarch64.tar.xz
           retention-days: 30
+          compression-level: 0
 
   # ===========================================================================
   # Job 5: Portability verification

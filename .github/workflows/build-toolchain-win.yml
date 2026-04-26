@@ -189,6 +189,7 @@ jobs:
           path: 'C:\coca-toolchain-win-x86_64.zip'
           retention-days: 14
           if-no-files-found: error
+          compression-level: 0
 
   # ===========================================================================
   # Job 3: Stage 1 p2996 — MSVC-built (cached)
@@ -342,6 +343,7 @@ jobs:
           path: 'C:\coca-toolchain-p2996-win-x86_64.zip'
           retention-days: 14
           if-no-files-found: error
+          compression-level: 0
 
   # ===========================================================================
   # Job 5: Verify portability (main Stage 2)
