@@ -16,8 +16,15 @@ _patchelf_set_rpath() {
     local rpath="$2"
     # First remove any existing DT_RPATH / DT_RUNPATH so --set-rpath has a
     # clean slate. Modern patchelf 0.18+ honors this; ancient 0.9 may not.
-    patchelf --remove-rpath "${obj}" 2>/dev/null || true
+    patchelf --remove-rpath "${obj}"
     patchelf --set-rpath "${rpath}" "${obj}"
+    # Verify it took effect (paranoid check; helps catch silent failures
+    # when patchelf can't grow the dynamic section).
+    local actual
+    actual=$(patchelf --print-rpath "${obj}" 2>/dev/null || echo '<error>')
+    if [[ "${actual}" != "${rpath}" ]]; then
+        echo "[relocate] WARN: ${obj}: rpath mismatch — wanted '${rpath}', got '${actual}'" >&2
+    fi
 }
 
 # ── set_rpath_origin DIR ────────────────────────────────────────────────────
@@ -190,6 +197,14 @@ verify_no_forbidden_deps() {
             if (( has_violation == 1 )); then
                 echo "[verify] FAIL runtime: ${obj_label} resolves forbidden lib from system:"
                 echo "${found_forbidden}" | sed 's/^/    /'
+                # Diagnostic dump: rpath/runpath, needed, lib dir contents
+                echo "    [diag] DT_NEEDED:"
+                patchelf --print-needed "${obj}" 2>/dev/null | sed 's/^/        /'
+                echo "    [diag] DT_RPATH/RUNPATH: $(patchelf --print-rpath "${obj}" 2>/dev/null || echo '<unset>')"
+                echo "    [diag] readelf -d (PATH-related):"
+                readelf -d "${obj}" 2>/dev/null | grep -E 'RPATH|RUNPATH|NEEDED' | sed 's/^/        /'
+                echo "    [diag] ${tool_dir}/lib/ contents:"
+                ls -la "${tool_dir}/lib/" 2>/dev/null | sed 's/^/        /'
                 fail=1
             fi
         fi
