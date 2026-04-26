@@ -101,48 +101,27 @@ for libfile in "${DEPS_KRB5}/lib/libgssapi_krb5.so"* \
 done
 
 # libstdc++.so.6 + libgcc_s.so.1 — extract from bootstrap GCC's runtime.
-# These are normally FORBIDDEN at the toolchain level; we bundle into the
-# pwsh dir ONLY so .NET's C++ runtime can resolve them via LD_LIBRARY_PATH
-# without polluting the parent toolchain.
-# Try lib64 first (common for GCC), then lib.
-copy_gcc_runtime_lib() {
-    local libname="$1"
-    for d in "${BOOTSTRAP_PREFIX}/lib64" "${BOOTSTRAP_PREFIX}/lib"; do
-        for f in "${d}/${libname}".so* "${d}/${libname}".[0-9]; do
-            [[ -f "${f}" ]] || continue
-            cp -aL "${f}" "${TOOL_DIR}/lib/" 2>/dev/null && return 0
-        done
-    done
-    err "Could not locate ${libname}.so* under ${BOOTSTRAP_PREFIX}/{lib,lib64}"
-    return 1
-}
-copy_gcc_runtime_lib libstdc++ || true
-copy_gcc_runtime_lib libgcc_s  || true
+# These are normally FORBIDDEN at the toolchain level; we bundle them ONLY
+# into tools/pwsh/lib/ where .NET's CoreCLR resolves them via local rpath.
+# verify_no_forbidden_deps then accepts them because they sit INSIDE tool_dir.
+bundle_gcc_runtime_into_tool "${TOOL_DIR}" libgcc_s libstdc++
 
-# 5. Patch ALL ELF objects in tools/pwsh/ to use $ORIGIN/lib for rpath
-# .NET's native libs are in tools/pwsh/, and they need to find our bundled libs.
-log "Patching rpath of pwsh ELF objects to \$ORIGIN/lib"
-patch_count=0
-while IFS= read -r -d '' obj; do
-    if file "${obj}" 2>/dev/null | grep -qE "ELF.*(executable|shared)"; then
-        # pwsh binary: rpath = $ORIGIN/lib (so it finds our bundles)
-        # .NET .so libs: same
-        patchelf --force-rpath --set-rpath '$ORIGIN/lib:$ORIGIN' "${obj}" 2>/dev/null || true
-        patch_count=$((patch_count + 1))
-    fi
-done < <(find "${TOOL_DIR}" -type f -print0)
-log "Patched rpath on ${patch_count} ELF objects"
+# 5. Patch rpath on every ELF in tools/pwsh/ so they find tools/pwsh/lib/.
+#    pwsh binary lives at tools/pwsh/pwsh (top level, NOT bin/), so rpath is
+#    $ORIGIN/lib. .NET .so libs scattered under tools/pwsh/ also resolve via
+#    $ORIGIN/lib (relative paths computed by add_rpath_to_lib_dir).
+add_rpath_to_lib_dir "${TOOL_DIR}" "${TOOL_DIR}/lib"
 
-# Lib subdir: each shared lib's rpath is $ORIGIN (siblings)
+# Shared libs in tools/pwsh/lib/ resolve siblings via $ORIGIN
 while IFS= read -r -d '' lib; do
     if file "${lib}" 2>/dev/null | grep -q "ELF.*shared"; then
         patchelf --force-rpath --set-rpath '$ORIGIN' "${lib}" 2>/dev/null || true
     fi
 done < <(find "${TOOL_DIR}/lib" -type f -name '*.so*' -print0 2>/dev/null)
 
-# 6. Verify pwsh resolves all deps with bundled libs
-log "Verifying pwsh dependencies (allow libstdc++/libgcc_s INSIDE pwsh dir only)"
-verify_no_forbidden_deps "${TOOL_DIR}" "libstdc++|libgcc_s"
+# 6. Verify pwsh has no forbidden system deps (libstdc++/libgcc_s are OK
+#    only because they resolve to ${TOOL_DIR}/lib/, not from the host).
+verify_no_forbidden_deps "${TOOL_DIR}"
 
 # 7. Smoke test — pwsh binary should run; --version prints PowerShell version
 chmod +x "${TOOL_DIR}/pwsh"

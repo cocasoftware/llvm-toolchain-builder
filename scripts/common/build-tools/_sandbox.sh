@@ -59,13 +59,22 @@ export CXXFLAGS="-O2 -fPIC -ffunction-sections -fdata-sections -stdlib=libc++"
 
 # Linker flags:
 #   -fuse-ld=lld         use Stage 2 lld (faster, deterministic)
-#   -stdlib=libc++       C++ runtime via libc++/libc++abi (not libstdc++)
-#   -Wl,-rpath,$ORIGIN   relative rpath so binaries are relocatable
+#   -Wl,-rpath,...       relative rpath chain so binaries find libc++ etc.
 #   -L${STAGE2_PREFIX}/lib  find libc++.so / libunwind.so at link time
 #   --gc-sections        strip unused sections
-# NOTE: $ORIGIN must be a literal in the ELF; we use single-quoted string to
-# prevent shell expansion. Linker resolves it at runtime.
-export LDFLAGS='-fuse-ld=lld -Wl,-rpath,$ORIGIN/../lib -Wl,-rpath,$ORIGIN/../../lib -Wl,--gc-sections'
+#
+# rpath chain (every tool gets all three; the linker tries them in order):
+#   $ORIGIN/../lib              tools/<name>/bin/<exe>  → tools/<name>/lib/   (own deps)
+#   $ORIGIN/../../lib           tools/<name>/bin/<exe>  → tools/lib/          (rare)
+#   $ORIGIN/../../../lib        tools/<name>/bin/<exe>  → <prefix>/lib/       (Stage 2 libc++/libunwind)
+#
+# NOTE: $ORIGIN must be a literal in the ELF; single-quote so shell doesn't
+# expand it. The dynamic linker resolves $ORIGIN at runtime (per-binary).
+export LDFLAGS='-fuse-ld=lld'
+LDFLAGS="${LDFLAGS} -Wl,-rpath,\$ORIGIN/../lib"
+LDFLAGS="${LDFLAGS} -Wl,-rpath,\$ORIGIN/../../lib"
+LDFLAGS="${LDFLAGS} -Wl,-rpath,\$ORIGIN/../../../lib"
+LDFLAGS="${LDFLAGS} -Wl,--gc-sections"
 LDFLAGS="-L${STAGE2_PREFIX}/lib ${LDFLAGS}"
 export LDFLAGS
 

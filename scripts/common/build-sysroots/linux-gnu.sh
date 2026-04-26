@@ -135,17 +135,40 @@ done
 prune_sysroot "${SYSROOT_DIR}"
 fix_absolute_symlinks "${SYSROOT_DIR}"
 
+# ── Fix linker script absolute paths ────────────────────────────────────────
+# /usr/lib/<triple>/libc.so contains:
+#   GROUP ( /lib/<triple>/libc.so.6 /usr/lib/<triple>/libc_nonshared.a
+#           AS_NEEDED ( /lib/<triple>/ld-linux-...so.2 ) )
+# The absolute paths break sysroot resolution. Patch them to be relative
+# (clang's --sysroot will then prepend the sysroot dir).
+for libc_so in "${SYSROOT_DIR}/usr/lib/${TRIPLE}/libc.so" \
+               "${SYSROOT_DIR}/usr/lib/${TRIPLE}/libpthread.so" \
+               "${SYSROOT_DIR}/usr/lib/${TRIPLE}/libm.so"; do
+    if [[ -f "${libc_so}" ]] && head -1 "${libc_so}" | grep -q "GROUP"; then
+        log "  patching linker script ${libc_so#${SYSROOT_DIR}}"
+        # Replace /lib/<triple>/ → lib/<triple>/, /usr/lib/<triple>/ → usr/lib/<triple>/
+        sed -i \
+            -e "s|/lib/${TRIPLE}/|lib/${TRIPLE}/|g" \
+            -e "s|/usr/lib/${TRIPLE}/|usr/lib/${TRIPLE}/|g" \
+            "${libc_so}"
+    fi
+done
+
 # ── Verify essential files ──────────────────────────────────────────────────
+# Note: glibc's libc.so.6 is in /lib/<triple>/ (pre-usrmerge layout), while
+# crt*.o and headers live in /usr/include/<triple>/ and /usr/lib/<triple>/.
 ESSENTIAL=(
     "${SYSROOT_DIR}/usr/include/stdio.h"
     "${SYSROOT_DIR}/usr/include/${TRIPLE}/sys/types.h"
-    "${SYSROOT_DIR}/usr/lib/${TRIPLE}/libc.so.6"
+    "${SYSROOT_DIR}/lib/${TRIPLE}/libc.so.6"
+    "${SYSROOT_DIR}/usr/lib/${TRIPLE}/libc.so"
     "${SYSROOT_DIR}/usr/lib/${TRIPLE}/crt1.o"
 )
 for f in "${ESSENTIAL[@]}"; do
     if [[ ! -e "${f}" ]]; then
         echo "ERROR: essential file missing: ${f}" >&2
-        find "${SYSROOT_DIR}" -name "$(basename "${f}")" 2>/dev/null | head -3
+        echo "Searching for $(basename "${f}") under ${SYSROOT_DIR}:" >&2
+        find "${SYSROOT_DIR}" -name "$(basename "${f}")" 2>/dev/null | head -5 >&2
         exit 1
     fi
 done

@@ -71,20 +71,31 @@ for t in "${TARGETS[@]}"; do
         log "WARN: rustup target ${t} not added (may not exist for this Rust version)"
 done
 
-# 5. Verify
+# 5. Smoke test BEFORE relocation (ensures install completed correctly with
+#    system libgcc_s; we'll then bundle it locally and re-verify)
 "${CARGO_HOME}/bin/rustc" --version
 "${CARGO_HOME}/bin/cargo" --version
 
-# 6. Strip rust toolchain binaries to save space (optional — saves ~50MB)
-STAGE_TC="${RUSTUP_HOME}/toolchains/${VERSION}-${RUST_HOST}"
-if [[ -d "${STAGE_TC}/bin" ]]; then
-    find "${STAGE_TC}/bin" -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true
-fi
+# 6. Bundle libgcc_s + libstdc++ from bootstrap GCC into tools/rust/lib/.
+#    Rust's rustc/cargo (and various .so plugins under rustup/toolchains/...)
+#    link against these. Bundling makes tools/rust/ self-contained on any
+#    2015+ glibc system without requiring system GCC runtime.
+bundle_gcc_runtime_into_tool "${TOOL_DIR}" libgcc_s libstdc++
 
-# 7. Quick verify (rust binaries are usually OK; if any forbidden deps appear,
-#    upstream is at fault — we accept upstream rust binaries as-is)
-verify_no_forbidden_deps "${TOOL_DIR}" || \
-    log "WARN: rust toolchain has dep issues; upstream binary kept as-is"
+# 7. Patch rpath on EVERY ELF under tools/rust/. Each binary gets a per-file
+#    relative path to tools/rust/lib/ prepended (existing internal rpaths
+#    like '$ORIGIN/../lib' for libstd.so are preserved).
+add_rpath_to_lib_dir "${TOOL_DIR}" "${TOOL_DIR}/lib"
+
+# 8. Strip toolchain binaries to save space (~50MB saved)
+strip_binaries "${TOOL_DIR}"
+
+# 9. Final verify: must have NO forbidden deps from the system, NO unresolved
+verify_no_forbidden_deps "${TOOL_DIR}"
+
+# 10. Re-test post-relocation
+"${CARGO_HOME}/bin/rustc" --version
+"${CARGO_HOME}/bin/cargo" --version
 
 log "${TOOL_NAME} installed to ${TOOL_DIR}"
 du -sh "${TOOL_DIR}"

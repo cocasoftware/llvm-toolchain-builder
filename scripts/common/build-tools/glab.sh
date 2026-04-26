@@ -41,29 +41,30 @@ rm -rf "${WORK_DIR}"
 mkdir -p "${WORK_DIR}"
 tar -xzf "${SOURCES_DIR:-${TOOLS_CACHE_DIR:-/opt/tools-cache}/sources}/${ARCHIVE_NAME}" -C "${WORK_DIR}"
 
-# 3. Install: glab binary lives in bin/glab inside the tarball
+# 3. Install: glab → bin/glab
 rm -rf "${TOOL_DIR}"
-mkdir -p "${TOOL_DIR}"
+mkdir -p "${TOOL_DIR}/bin"
 if [[ -f "${WORK_DIR}/bin/glab" ]]; then
-    cp "${WORK_DIR}/bin/glab" "${TOOL_DIR}/glab"
+    cp "${WORK_DIR}/bin/glab" "${TOOL_DIR}/bin/glab"
 elif [[ -f "${WORK_DIR}/glab" ]]; then
-    cp "${WORK_DIR}/glab" "${TOOL_DIR}/glab"
+    cp "${WORK_DIR}/glab" "${TOOL_DIR}/bin/glab"
 else
     echo "FATAL: glab binary not found in extracted archive" >&2
     find "${WORK_DIR}" -name 'glab*' -type f 2>/dev/null
     exit 1
 fi
-chmod +x "${TOOL_DIR}/glab"
+chmod +x "${TOOL_DIR}/bin/glab"
 
 # Copy LICENSE if present
 [[ -f "${WORK_DIR}/LICENSE" ]] && cp "${WORK_DIR}/LICENSE" "${TOOL_DIR}/LICENSE"
 [[ -f "${WORK_DIR}/LICENSE.txt" ]] && cp "${WORK_DIR}/LICENSE.txt" "${TOOL_DIR}/LICENSE.txt"
 
-# 4. Verify
+# 4. Strip + verify (Go binary, statically linked, should have no deps)
+strip_binaries "${TOOL_DIR}"
 verify_no_forbidden_deps "${TOOL_DIR}"
 
 # 5. Smoke test
-"${TOOL_DIR}/glab" --version | head -1
+"${TOOL_DIR}/bin/glab" --version | head -1
 
 echo "===> ${TOOL_NAME} installed to ${TOOL_DIR}"
-ls -la "${TOOL_DIR}"
+ls -la "${TOOL_DIR}" "${TOOL_DIR}/bin"

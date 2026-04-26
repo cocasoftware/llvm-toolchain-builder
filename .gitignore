@@ -7,3 +7,5 @@ run-logs.zip
 bootstrap-job.log
 run-logs/
 run-logs.zip
+
+.scratch-*

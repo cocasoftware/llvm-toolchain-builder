@@ -36,17 +36,18 @@ echo "===> Building ${TOOL_NAME} v${VERSION} for ${PLATFORM}"
 # 1. Download single binary (cached)
 download_file "${URL}" "${DEST_NAME}"
 
-# 2. Install
+# 2. Install: bin/jf
 rm -rf "${TOOL_DIR}"
-mkdir -p "${TOOL_DIR}"
-cp "${SOURCES_DIR:-${TOOLS_CACHE_DIR:-/opt/tools-cache}/sources}/${DEST_NAME}" "${TOOL_DIR}/jf"
-chmod +x "${TOOL_DIR}/jf"
+mkdir -p "${TOOL_DIR}/bin"
+cp "${SOURCES_DIR:-${TOOLS_CACHE_DIR:-/opt/tools-cache}/sources}/${DEST_NAME}" "${TOOL_DIR}/bin/jf"
+chmod +x "${TOOL_DIR}/bin/jf"
 
-# 3. Verify
+# 3. Strip + verify (Go binaries are statically linked; should have zero deps)
+strip_binaries "${TOOL_DIR}"
 verify_no_forbidden_deps "${TOOL_DIR}"
 
 # 4. Smoke test
-"${TOOL_DIR}/jf" --version | head -1
+"${TOOL_DIR}/bin/jf" --version | head -1
 
 echo "===> ${TOOL_NAME} installed to ${TOOL_DIR}"
-ls -la "${TOOL_DIR}"
+ls -la "${TOOL_DIR}" "${TOOL_DIR}/bin"
