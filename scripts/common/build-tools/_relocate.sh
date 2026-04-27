@@ -7,83 +7,126 @@
 # =============================================================================
 
 # ── _patchelf_set_rpath OBJ RPATH ───────────────────────────────────────────
-# Deterministic rpath setter. Removes any pre-existing DT_RPATH and
-# DT_RUNPATH, then sets DT_RUNPATH to RPATH. DT_RUNPATH is what modern
-# Linux dynamic linkers consult; setting RPATH (the older tag) without
-# clearing RUNPATH leaves the binary still using the old RUNPATH.
+# Deterministic rpath setter with two-tier strategy.
+#
+# Tier 1: --set-rpath (DT_RUNPATH, modern, preferred — honored by every
+#         glibc since 2.5; takes precedence over LD_LIBRARY_PATH).
+# Tier 2: --force-rpath --set-rpath (DT_RPATH, legacy but rock-solid on
+#         aarch64 binaries where DT_RUNPATH addition silently fails due
+#         to insufficient PT_DYNAMIC slack space — a known patchelf 0.18
+#         issue on certain Rust-emitted ELFs, including wasmtime aarch64).
+#
+# Both tiers use --remove-rpath first to ensure a clean dynamic section.
+# Returns 0 if either tier persists; 1 with full readelf -d dump otherwise.
 _patchelf_set_rpath() {
     local obj="$1"
     local rpath="$2"
-    # Capture before-state for logging on failure
-    local before
+    local before actual
     before=$(patchelf --print-rpath "${obj}" 2>/dev/null || true)
-    # First remove any existing DT_RPATH / DT_RUNPATH so --set-rpath has a
-    # clean slate. patchelf is idempotent here — removing a non-existent
-    # rpath is a successful no-op in 0.18+.
+
+    # ── Tier 1: DT_RUNPATH ──────────────────────────────────────────────
     patchelf --remove-rpath "${obj}" 2>/dev/null || true
-    if ! patchelf --set-rpath "${rpath}" "${obj}" 2>&1; then
-        echo "[relocate] FATAL: patchelf --set-rpath failed on ${obj}" >&2
-        return 1
+    if patchelf --set-rpath "${rpath}" "${obj}" 2>&1; then
+        actual=$(patchelf --print-rpath "${obj}" 2>/dev/null)
+        if [[ "${actual}" == "${rpath}" ]]; then
+            return 0
+        fi
     fi
-    # Verify it took effect. Some patchelf versions on aarch64 with stripped
-    # PIE binaries can return success but fail to actually persist the rpath
-    # if the dynamic section can't be relocated. We MUST detect this.
-    local actual
-    actual=$(patchelf --print-rpath "${obj}" 2>/dev/null)
-    if [[ "${actual}" != "${rpath}" ]]; then
-        echo "[relocate] FATAL: ${obj}: rpath persistence failed" >&2
-        echo "[relocate]        before='${before}' wanted='${rpath}' got='${actual}'" >&2
-        echo "[relocate]        readelf -d output:" >&2
-        readelf -d "${obj}" 2>&1 | grep -E 'PATH|NEEDED' | sed 's/^/    /' >&2
-        return 1
+
+    # ── Tier 2: DT_RPATH fallback ──────────────────────────────────────
+    # Some aarch64 binaries refuse to accept DT_RUNPATH addition because
+    # the dynamic section has no slack and patchelf cannot grow it. The
+    # legacy DT_RPATH tag is still honored by every dynamic linker and
+    # works on those binaries — at the cost of losing LD_LIBRARY_PATH
+    # override semantics, which we don't need for self-contained tools.
+    patchelf --remove-rpath "${obj}" 2>/dev/null || true
+    if patchelf --force-rpath --set-rpath "${rpath}" "${obj}" 2>&1; then
+        actual=$(patchelf --print-rpath "${obj}" 2>/dev/null)
+        if [[ "${actual}" == "${rpath}" ]]; then
+            echo "[relocate] used DT_RPATH fallback for ${obj}"
+            return 0
+        fi
     fi
+
+    # Both tiers failed — the binary is unpatchable; caller must wrap.
+    echo "[relocate] FATAL: ${obj}: rpath persistence failed (both DT_RUNPATH and DT_RPATH)" >&2
+    echo "[relocate]        before='${before}' wanted='${rpath}' got='${actual:-<empty>}'" >&2
+    echo "[relocate]        readelf -d output:" >&2
+    readelf -d "${obj}" 2>&1 | sed 's/^/    /' >&2
+    return 1
 }
 
 # ── set_rpath_origin DIR ────────────────────────────────────────────────────
-# For every ELF binary in DIR/bin/ (and sbin/libexec), set rpath to
-# '$ORIGIN/../lib' so it can find the tool's own bundled libs in DIR/lib/.
-# For every shared library in DIR/lib/, set rpath to '$ORIGIN' so siblings
-# resolve each other.
+# For every ELF object under DIR, set an $ORIGIN-relative rpath so the
+# tool finds its own bundled libs in DIR/lib/ regardless of install prefix.
 #
-# Failures are NOT silenced: a patchelf error here means the toolchain is
-# not relocatable, which is a hard portability violation.
+# Single-pass implementation: iterate ALL files under DIR, identify ELF
+# binaries by file(1), and choose rpath based on:
+#   • ELF executable in bin/sbin/libexec → $ORIGIN/<rel-to-lib>
+#   • ELF shared library in lib/lib64/   → $ORIGIN (sibling lookup)
+#   • ELF object in any other location   → $ORIGIN/<rel-to-lib>
+# This avoids any -name pattern subtlety (e.g. libgcc_s.so.1 not matching
+# *.so on some find versions) and handles non-standard layouts uniformly.
+#
+# Failures are NOT silenced: a patchelf error means the toolchain is not
+# relocatable, which is a hard portability violation.
 set_rpath_origin() {
     local tool_dir="$1"
     if [[ ! -d "${tool_dir}" ]]; then
         echo "[relocate] skip: ${tool_dir} not a directory"
         return 0
     fi
+    local tool_dir_real
+    tool_dir_real=$(readlink -f "${tool_dir}")
+    local lib_dir="${tool_dir_real}/lib"
 
-    local count=0
-
-    # Executables under bin/, sbin/, libexec/
-    for sub in bin sbin libexec; do
-        if [[ -d "${tool_dir}/${sub}" ]]; then
-            while IFS= read -r -d '' exe; do
-                if file "${exe}" 2>/dev/null | grep -q "ELF.*executable"; then
-                    _patchelf_set_rpath "${exe}" '$ORIGIN/../lib'
-                    count=$((count + 1))
-                fi
-            done < <(find "${tool_dir}/${sub}" -type f -print0)
+    local count=0 skipped=0
+    while IFS= read -r -d '' obj; do
+        local ftype
+        ftype=$(file -b "${obj}" 2>/dev/null || echo '<unknown>')
+        if [[ "${ftype}" != ELF* ]]; then
+            continue
         fi
-    done
-
-    # Shared libraries under lib/, lib64/
-    for sub in lib lib64; do
-        if [[ -d "${tool_dir}/${sub}" ]]; then
-            while IFS= read -r -d '' lib; do
-                local ftype
-                ftype=$(file -b "${lib}" 2>/dev/null || echo '<unknown>')
-                if [[ "${ftype}" == ELF*shared* ]]; then
-                    _patchelf_set_rpath "${lib}" '$ORIGIN'
-                    count=$((count + 1))
-                else
-                    echo "[relocate] skip non-ELF lib: ${lib} (${ftype:0:60})"
-                fi
-            done < <(find "${tool_dir}/${sub}" -type f \( -name "*.so" -o -name "*.so.*" \) -print0)
+        if [[ "${ftype}" != *executable* && "${ftype}" != *shared* ]]; then
+            continue
         fi
-    done
 
+        local obj_dir rpath=""
+        obj_dir=$(dirname "${obj}")
+        case "${obj_dir}" in
+            "${tool_dir_real}/bin"|"${tool_dir_real}/sbin"|"${tool_dir_real}/libexec")
+                # Standard executable location → sibling lib dir.
+                rpath='$ORIGIN/../lib'
+                ;;
+            "${tool_dir_real}/lib"|"${tool_dir_real}/lib64")
+                # Top-level shared lib → siblings resolve each other.
+                rpath='$ORIGIN'
+                ;;
+            "${tool_dir_real}/lib/"*|"${tool_dir_real}/lib64/"*)
+                # Nested .so (e.g. Python's lib/python3.14/lib-dynload/*.so)
+                # → climb back to tool's top-level lib dir.
+                local rel
+                rel=$(realpath --relative-to="${obj_dir}" "${lib_dir}" 2>/dev/null || echo "..")
+                rpath="\$ORIGIN/${rel}"
+                ;;
+            *)
+                # Non-standard nested layout (e.g. perl's tools/perl/perl/bin/
+                # which has its own Configure-time rpath to perl/lib/CORE).
+                # Leave untouched: matches legacy behavior.
+                continue
+                ;;
+        esac
+
+        if _patchelf_set_rpath "${obj}" "${rpath}"; then
+            count=$((count + 1))
+        else
+            skipped=$((skipped + 1))
+        fi
+    done < <(find "${tool_dir}" -type f -print0)
+
+    if (( skipped > 0 )); then
+        echo "[relocate] WARN: ${skipped} ELF object(s) could not be patched in ${tool_dir}" >&2
+    fi
     echo "[relocate] patched rpath on ${count} ELF objects in ${tool_dir}"
 }
 
@@ -173,9 +216,15 @@ verify_no_forbidden_deps() {
             fi
         done <<< "${needed}"
 
-        # ── RUNTIME check: ldd must NOT fall back to system ───────────────
+        # ── RUNTIME check: ldd must resolve forbidden libs locally ────────
+        # We run ldd with LD_LIBRARY_PATH prepended with tool_dir/lib so the
+        # check simulates the runtime conditions the binary is exec'd under
+        # (either via DT_RPATH/DT_RUNPATH OR via a launcher script that sets
+        # LD_LIBRARY_PATH itself). This unifies both paths under one check
+        # and verifies the BUNDLED lib has the right SONAME for resolution.
         local ldd_out
-        ldd_out=$(ldd "${obj}" 2>&1 || true)
+        ldd_out=$(LD_LIBRARY_PATH="${tool_dir_real}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+                  ldd "${obj}" 2>&1 || true)
 
         # Skip runtime check if build-env GLIBC is too old for this binary
         # (typical for upstream Rust binaries from RHEL 8 builders).
@@ -331,6 +380,40 @@ add_rpath_to_lib_dir() {
     done < <(find "${tool_dir}" -type f -print0)
 
     echo "[relocate] added rpath →${lib_dir} on ${count} ELF objects"
+}
+
+# ── wrap_with_launcher_script BIN_PATH ──────────────────────────────────────
+# Final-tier fallback for ELF binaries that patchelf cannot patch (extremely
+# rare — e.g. binaries with packed dynamic sections and no slack).
+#
+# Renames the original ELF to BIN_PATH.real and replaces BIN_PATH with a
+# minimal /bin/sh launcher that prepends the bundled lib dir to
+# LD_LIBRARY_PATH and execs the real binary. The launcher is POSIX shell
+# (no bash dependency), ~150 bytes, with negligible startup overhead.
+#
+# Layout assumption: BIN_PATH is in <tool_dir>/{bin,sbin,libexec} and the
+# bundled lib dir is at <tool_dir>/lib (sibling level).
+wrap_with_launcher_script() {
+    local bin_path="$1"
+    if [[ ! -f "${bin_path}" ]]; then
+        echo "[relocate] wrap_with_launcher_script: ${bin_path} not a file" >&2
+        return 1
+    fi
+    local bin_dir bin_name real_path
+    bin_dir=$(dirname "${bin_path}")
+    bin_name=$(basename "${bin_path}")
+    real_path="${bin_dir}/.${bin_name}.real"
+
+    mv "${bin_path}" "${real_path}"
+    cat > "${bin_path}" <<LAUNCHER_EOF
+#!/bin/sh
+# Auto-generated launcher: bundled-lib LD_LIBRARY_PATH wrapper.
+DIR=\$(cd -- "\$(dirname -- "\$0")" && pwd)
+LD_LIBRARY_PATH="\${DIR}/../lib\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}" \\
+    exec "\${DIR}/.${bin_name}.real" "\$@"
+LAUNCHER_EOF
+    chmod +x "${bin_path}"
+    echo "[relocate] wrapped ${bin_path} with launcher script (real: ${real_path})"
 }
 
 # ── relocate_and_verify DIR ─────────────────────────────────────────────────

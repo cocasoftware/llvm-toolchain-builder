@@ -68,6 +68,18 @@ bundle_gcc_runtime_into_tool "${TOOL_DIR}" libgcc_s
 strip_binaries   "${TOOL_DIR}"
 set_rpath_origin "${TOOL_DIR}"
 
+# 5b. Belt-and-suspenders: confirm bin/wasmtime got an rpath. On certain
+#     aarch64 release builds patchelf cannot grow the dynamic section to
+#     add DT_RUNPATH/DT_RPATH (no slack space). In that case, wrap with a
+#     POSIX-shell launcher that prepends ../lib to LD_LIBRARY_PATH so the
+#     bundled libgcc_s.so.1 is found at exec time without depending on
+#     ELF-level rpath. This is functionally equivalent and 100% reliable.
+WASMTIME_RPATH=$(patchelf --print-rpath "${TOOL_DIR}/bin/wasmtime" 2>/dev/null || true)
+if [[ -z "${WASMTIME_RPATH}" ]] && [[ -d "${TOOL_DIR}/lib" ]]; then
+    echo "[wasmtime] patchelf could not persist rpath; using launcher fallback"
+    wrap_with_launcher_script "${TOOL_DIR}/bin/wasmtime"
+fi
+
 # 6. Verify: must have NO forbidden deps from the system, and NO unresolved
 verify_no_forbidden_deps "${TOOL_DIR}"
 
