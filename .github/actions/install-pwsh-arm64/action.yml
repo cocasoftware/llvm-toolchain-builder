@@ -39,10 +39,18 @@ runs:
         $zip     = Join-Path $env:RUNNER_TEMP "pwsh-$version-arm64.zip"
         $dst     = 'C:\Program Files\PowerShell\7'
 
+        # curl.exe is preinstalled on Windows 11 (since build 17063) and on every
+        # GitHub-hosted Windows runner. We prefer it over Invoke-WebRequest because
+        # PS 5.1's IWR is known to fail on large binary downloads (TLS framing,
+        # decompression-stream EOF). curl follows redirects, retries on transient
+        # failures, and writes straight to disk.
+        $curl = (Get-Command curl.exe -ErrorAction Stop).Source
         Write-Host "Downloading PowerShell $version (win-arm64) ..."
         Write-Host "  URL: $url"
-        $ProgressPreference = 'SilentlyContinue'
-        Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+        & $curl --fail --location --retry 5 --retry-delay 2 --retry-all-errors --silent --show-error --output $zip $url
+        if ($LASTEXITCODE -ne 0) {
+            throw "curl failed with exit code $LASTEXITCODE downloading $url"
+        }
 
         New-Item -ItemType Directory -Force -Path $dst | Out-Null
         Write-Host "Extracting to $dst ..."
