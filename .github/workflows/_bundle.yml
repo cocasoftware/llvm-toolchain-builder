@@ -113,6 +113,9 @@ jobs:
           path: /opt/tools-cache/sysroots/wasm32-wasi
           key: sysroot-wasm32-wasi-v1-${{ hashFiles('scripts/common/build-sysroots/wasi.sh', 'scripts/common/build-sysroots/lib.sh', 'scripts/common/tool-versions.sh') }}
 
+      - name: Ensure Docker is available
+        uses: ./.github/actions/ensure-docker
+
       - name: Build missing sysroots
         env:
           HIT_LINUX_GNU_X86: ${{ steps.cache-linux-gnu-x86.outputs.cache-hit }}
@@ -148,7 +151,7 @@ jobs:
           echo "Sysroots to build:"
           cat "${MISSING_FILE}"
 
-          docker run --rm \
+          sudo docker run --rm \
             -v "${{ github.workspace }}:/src:ro" \
             -v /opt/tools-cache:/opt/tools-cache \
             ubuntu:16.04 \

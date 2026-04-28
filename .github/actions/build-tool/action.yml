@@ -52,6 +52,10 @@ runs:
         path: ${{ inputs.cache-dir }}/built/${{ inputs.tool }}
         key: tool-${{ inputs.tool }}-v${{ inputs.version }}-${{ inputs.platform }}-llvm${{ inputs.llvm-version }}-${{ hashFiles(format('scripts/common/build-tools/{0}.sh', inputs.tool), 'scripts/common/build-tools/_*.sh', 'scripts/common/tool-versions.sh') }}
 
+    - name: Ensure Docker is available
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: ./.github/actions/ensure-docker
+
     - name: Build ${{ inputs.tool }} (cache miss)
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
@@ -62,7 +66,7 @@ runs:
                       '${{ inputs.cache-dir }}/work'
         sudo chown -R "$(id -u):$(id -g)" '${{ inputs.cache-dir }}'
 
-        docker run --rm \
+        sudo docker run --rm \
           -v "${{ github.workspace }}:/src:ro" \
           -v "${{ inputs.cache-dir }}:/opt/tools-cache" \
           -v "${{ inputs.stage2-prefix }}:${{ inputs.stage2-prefix }}:ro" \

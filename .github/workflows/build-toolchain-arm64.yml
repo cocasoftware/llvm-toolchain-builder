@@ -29,6 +29,7 @@ on:
       - 'scripts/linux/**'
       - 'templates/**'
       - '.github/actions/build-tool/**'
+      - '.github/actions/ensure-docker/**'
       - '.github/workflows/build-toolchain-arm64.yml'
       - '.github/workflows/_bundle.yml'
 
@@ -71,14 +72,18 @@ jobs:
           restore-keys: |
             arm64-bootstrap-v1-
 
+      - name: Ensure Docker is available
+        if: steps.cache-bootstrap.outputs.cache-hit != 'true'
+        uses: ./.github/actions/ensure-docker
+
       - name: Pull container image
         if: steps.cache-bootstrap.outputs.cache-hit != 'true'
-        run: docker pull ${{ env.IMAGE }}
+        run: sudo docker pull ${{ env.IMAGE }}
 
       - name: Build bootstrap tools
         if: steps.cache-bootstrap.outputs.cache-hit != 'true'
         run: |
-          docker run --rm \
+          sudo docker run --rm \
             -v ${{ github.workspace }}:/src:ro \
             -v /opt/bootstrap:/opt/bootstrap \
             -e BOOTSTRAP_PREFIX=/opt/bootstrap \
@@ -88,7 +93,7 @@ jobs:
       - name: Verify bootstrap
         if: steps.cache-bootstrap.outputs.cache-hit != 'true'
         run: |
-          docker run --rm \
+          sudo docker run --rm \
             -v /opt/bootstrap:/opt/bootstrap:ro \
             ${{ env.IMAGE }} \
             bash -c '
@@ -162,14 +167,18 @@ jobs:
           path: /tmp/llvm-project
           key: llvm-src-arm64-${{ env.LLVM_VERSION }}
 
+      - name: Ensure Docker is available
+        if: steps.cache-stage1.outputs.cache-hit != 'true'
+        uses: ./.github/actions/ensure-docker
+
       - name: Pull container image
         if: steps.cache-stage1.outputs.cache-hit != 'true'
-        run: docker pull ${{ env.IMAGE }}
+        run: sudo docker pull ${{ env.IMAGE }}
 
       - name: Build LLVM Stage 1
         if: steps.cache-stage1.outputs.cache-hit != 'true'
         run: |
-          docker run --rm \
+          sudo docker run --rm \
             -v ${{ github.workspace }}:/src:ro \
             -v /opt/bootstrap:/opt/bootstrap:ro \
             -v /opt/stage1:/opt/stage1 \
@@ -190,7 +199,7 @@ jobs:
       - name: Verify Stage 1
         if: steps.cache-stage1.outputs.cache-hit != 'true'
         run: |
-          docker run --rm \
+          sudo docker run --rm \
             -v /opt/stage1:/opt/stage1:ro \
             -v /opt/bootstrap:/opt/bootstrap:ro \
             ${{ env.IMAGE }} \
@@ -239,9 +248,13 @@ jobs:
           path: /tmp/coca-toolchain-linux-aarch64.tar.xz
           key: arm64-stage2-main-v2-llvm${{ env.LLVM_VERSION }}-${{ hashFiles('scripts/common/versions.sh', 'scripts/common/source.sh', 'scripts/common/llvm-config-common.sh', 'scripts/common/llvm-config-stage2.sh', 'scripts/common/post-install.sh', 'scripts/linux-arm64/build-llvm-stage2.sh') }}
 
+      - name: Ensure Docker is available
+        if: steps.cache-stage2.outputs.cache-hit != 'true'
+        uses: ./.github/actions/ensure-docker
+
       - name: Pull container image
         if: steps.cache-stage2.outputs.cache-hit != 'true'
-        run: docker pull ${{ env.IMAGE }}
+        run: sudo docker pull ${{ env.IMAGE }}
 
       - name: Download bootstrap tools
         if: steps.cache-stage2.outputs.cache-hit != 'true'
@@ -276,7 +289,7 @@ jobs:
       - name: Build LLVM Stage 2 (main)
         if: steps.cache-stage2.outputs.cache-hit != 'true'
         run: |
-          docker run --rm \
+          sudo docker run --rm \
             -v ${{ github.workspace }}:/src:ro \
             -v /opt/bootstrap:/opt/bootstrap:ro \
             -v /opt/stage1:/opt/stage1:ro \
@@ -331,9 +344,13 @@ jobs:
           path: /tmp/coca-toolchain-p2996-linux-aarch64.tar.xz
           key: arm64-stage2-p2996-v2-llvm${{ env.LLVM_VERSION }}-${{ hashFiles('scripts/common/versions.sh', 'scripts/common/source.sh', 'scripts/common/llvm-config-common.sh', 'scripts/common/llvm-config-stage2.sh', 'scripts/common/post-install.sh', 'scripts/linux-arm64/build-llvm-stage2.sh') }}
 
+      - name: Ensure Docker is available
+        if: steps.cache-stage2-p2996.outputs.cache-hit != 'true'
+        uses: ./.github/actions/ensure-docker
+
       - name: Pull container image
         if: steps.cache-stage2-p2996.outputs.cache-hit != 'true'
-        run: docker pull ${{ env.IMAGE }}
+        run: sudo docker pull ${{ env.IMAGE }}
 
       - name: Download bootstrap tools
         if: steps.cache-stage2-p2996.outputs.cache-hit != 'true'
@@ -361,7 +378,7 @@ jobs:
       - name: Build LLVM Stage 2 (p2996)
         if: steps.cache-stage2-p2996.outputs.cache-hit != 'true'
         run: |
-          docker run --rm \
+          sudo docker run --rm \
             -v ${{ github.workspace }}:/src:ro \
             -v /opt/bootstrap:/opt/bootstrap:ro \
             -v /opt/stage1:/opt/stage1:ro \
@@ -457,9 +474,12 @@ jobs:
           cd /opt
           sudo tar xf /tmp/coca-toolchain-linux-aarch64.tar.xz
 
+      - name: Ensure Docker is available
+        uses: ./.github/actions/ensure-docker
+
       - name: Run portability tests in container
         run: |
-          docker run --rm \
+          sudo docker run --rm \
             --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
             -v ${{ github.workspace }}:/src:ro \
             -v /opt:/opt:ro \
@@ -501,9 +521,12 @@ jobs:
           cd /opt
           sudo tar xf /tmp/coca-toolchain-p2996-linux-aarch64.tar.xz
 
+      - name: Ensure Docker is available
+        uses: ./.github/actions/ensure-docker
+
       - name: Run portability tests in container
         run: |
-          docker run --rm \
+          sudo docker run --rm \
             --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
             -v ${{ github.workspace }}:/src:ro \
             -v /opt:/opt:ro \

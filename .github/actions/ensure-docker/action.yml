@@ -1,0 +1,55 @@
+name: Ensure Docker is installed and running
+description: |
+  Bootstrap Docker on hosted runner images that ship without it.
+
+  Some partner-managed runner SKUs (notably the larger ARM64 images such as
+  `ubuntu-24.04-arm-64core`) do not include Docker. This composite action
+  installs `docker.io` on demand and ensures the daemon is running, so any
+  caller can rely on `sudo docker` working afterwards.
+
+  Idempotent: if Docker is already installed and the daemon is responsive,
+  the action exits in a few hundred milliseconds.
+
+  After this action, callers MUST use `sudo docker ...` (not bare `docker`).
+  We deliberately do not add the runner user to the `docker` group because
+  group changes only take effect after a fresh shell session, which composite
+  actions cannot reliably orchestrate (`newgrp` would replace the running
+  shell mid-script). `sudo docker` is the simpler, equally fast path on
+  GitHub Actions hosted runners where passwordless sudo is the norm.
+
+runs:
+  using: composite
+  steps:
+    - name: Ensure Docker is available
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        if command -v docker >/dev/null 2>&1; then
+            echo "docker already installed: $(docker --version)"
+            if ! sudo docker info >/dev/null 2>&1; then
+                echo "docker daemon not running — starting"
+                sudo systemctl start docker 2>/dev/null \
+                    || sudo dockerd >/tmp/dockerd.log 2>&1 &
+                # Wait for the daemon socket
+                for _ in $(seq 1 10); do
+                    sudo docker info >/dev/null 2>&1 && break
+                    sleep 2
+                done
+            fi
+            sudo docker info | head -5
+            exit 0
+        fi
+
+        echo "docker not found — installing docker.io from apt"
+        sudo apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends docker.io
+
+        sudo systemctl start docker 2>/dev/null \
+            || sudo dockerd >/tmp/dockerd.log 2>&1 &
+        for _ in $(seq 1 15); do
+            sudo docker info >/dev/null 2>&1 && break
+            sleep 2
+        done
+        sudo docker --version
+        sudo docker info | head -5
