@@ -1,0 +1,79 @@
+name: Install Git (Windows ARM64)
+description: |
+  Bootstrap Git on Windows ARM64 hosted runner images that ship without it
+  (notably the partner-managed `windows-2022-arm-64core` SKU). Installs the
+  official Git-for-Windows MinGit ARM64 portable distribution into
+  `C:\MinGit` and prepends `C:\MinGit\cmd` to GITHUB_PATH so later steps can
+  invoke `git` directly.
+
+  Idempotent: if `git` is already on PATH, the download/install is skipped.
+
+  We use MinGit (~38 MB) instead of the full Git installer (~63 MB) since
+  the build scripts only need `git clone` / `git checkout` / `git submodule`,
+  which MinGit fully supports.
+
+inputs:
+  version:
+    description: Git for Windows release tag (without leading 'v')
+    required: false
+    default: '2.54.0.windows.1'
+  binary-version:
+    description: |
+      Version string used in the asset filename. Usually matches the major
+      release component of `version` (e.g. 2.54.0 for 2.54.0.windows.1).
+    required: false
+    default: '2.54.0'
+
+runs:
+  using: composite
+  steps:
+    - name: Install Git (ARM64)
+      shell: pwsh
+      env:
+        GIT_TAG: ${{ inputs.version }}
+        GIT_VER: ${{ inputs.binary-version }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+
+        $existing = Get-Command git -ErrorAction SilentlyContinue
+        if ($existing) {
+            Write-Host "git already on PATH: $($existing.Source)"
+            & git --version
+            exit 0
+        }
+
+        $installDir = 'C:\MinGit'
+        $cmdDir     = Join-Path $installDir 'cmd'
+        $gitExe     = Join-Path $cmdDir 'git.exe'
+
+        if (Test-Path -LiteralPath $gitExe) {
+            Write-Host "MinGit already installed at $installDir; adding to PATH"
+            "$cmdDir" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding ascii
+            & $gitExe --version
+            exit 0
+        }
+
+        $url = "https://github.com/git-for-windows/git/releases/download/v${env:GIT_TAG}/MinGit-${env:GIT_VER}-arm64.zip"
+        $zip = Join-Path $env:RUNNER_TEMP 'MinGit-arm64.zip'
+        Write-Host "Downloading MinGit ARM64..."
+        Write-Host "  URL: $url"
+        & curl.exe --fail --location --retry 5 --retry-delay 2 --retry-all-errors --silent --show-error --output $zip $url
+        if ($LASTEXITCODE -ne 0) { throw "curl failed (exit $LASTEXITCODE) downloading $url" }
+
+        Write-Host "Extracting MinGit to $installDir ..."
+        New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+        # MinGit zips are flat (no top-level directory), so extract directly into installDir
+        Expand-Archive -LiteralPath $zip -DestinationPath $installDir -Force
+
+        if (-not (Test-Path -LiteralPath $gitExe)) {
+            throw "git.exe not found at $gitExe after extraction"
+        }
+        Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+
+        # Persist for subsequent steps in the same job
+        "$cmdDir" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding ascii
+        # Also update current process PATH so verification below works
+        $env:PATH = "$cmdDir;$env:PATH"
+
+        & $gitExe --version
+        Write-Host "MinGit installed at $installDir"
