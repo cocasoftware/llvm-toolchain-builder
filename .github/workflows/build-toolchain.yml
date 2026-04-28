@@ -28,6 +28,13 @@ on:
         description: 'Force rebuild (ignore cache)'
         type: boolean
         default: false
+      runner_size:
+        description: 'Runner core count (matches the suffix in the runner label)'
+        type: choice
+        options:
+          - 64core
+          - 16core
+        default: 64core
   push:
     branches: [main]
     paths:
@@ -56,7 +63,7 @@ jobs:
   # ===========================================================================
   bootstrap:
     name: Bootstrap Tools
-    runs-on: ubuntu-24.04-64core
+    runs-on: ubuntu-24.04-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 720
     outputs:
       cache-hit: ${{ steps.cache-bootstrap.outputs.cache-hit }}
@@ -128,7 +135,7 @@ jobs:
   stage1:
     name: LLVM Stage 1
     needs: bootstrap
-    runs-on: ubuntu-24.04-64core
+    runs-on: ubuntu-24.04-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 720
     outputs:
       cache-hit: ${{ steps.cache-stage1.outputs.cache-hit }}
@@ -227,7 +234,7 @@ jobs:
   stage2-main:
     name: LLVM Stage 2 (main)
     needs: [bootstrap, stage1]
-    runs-on: ubuntu-24.04-64core
+    runs-on: ubuntu-24.04-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 720
     outputs:
       cache-hit: ${{ steps.cache-stage2.outputs.cache-hit }}
@@ -319,7 +326,7 @@ jobs:
     name: LLVM Stage 2 (p2996)
     needs: [bootstrap, stage1]
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
-    runs-on: ubuntu-24.04-64core
+    runs-on: ubuntu-24.04-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 720
     outputs:
       cache-hit: ${{ steps.cache-stage2-p2996.outputs.cache-hit }}
@@ -408,7 +415,7 @@ jobs:
       platform: linux-x86_64
       variant: main
       llvm-version: ${{ github.event.inputs.llvm_version || '21.1.1' }}
-      runner: ubuntu-24.04-64core
+      runner: ubuntu-24.04-${{ github.event.inputs.runner_size || '64core' }}
       image: ubuntu:16.04
       stage2-artifact-name: stage2-main-linux-x86_64
       stage2-archive-basename: coca-toolchain-linux-x86_64
@@ -426,7 +433,7 @@ jobs:
       platform: linux-x86_64
       variant: p2996
       llvm-version: ${{ github.event.inputs.llvm_version || '21.1.1' }}
-      runner: ubuntu-24.04-64core
+      runner: ubuntu-24.04-${{ github.event.inputs.runner_size || '64core' }}
       image: ubuntu:16.04
       stage2-artifact-name: stage2-p2996-linux-x86_64
       stage2-archive-basename: coca-toolchain-p2996-linux-x86_64
@@ -438,7 +445,7 @@ jobs:
   verify:
     name: Verify (${{ matrix.distro }})
     needs: [bundle-main]
-    runs-on: ubuntu-24.04-64core
+    runs-on: ubuntu-24.04-${{ github.event.inputs.runner_size || '64core' }}
     strategy:
       fail-fast: false
       matrix:
@@ -484,7 +491,7 @@ jobs:
     name: Verify p2996 (${{ matrix.distro }})
     needs: [bundle-p2996]
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
-    runs-on: ubuntu-24.04-64core
+    runs-on: ubuntu-24.04-${{ github.event.inputs.runner_size || '64core' }}
     strategy:
       fail-fast: false
       matrix:

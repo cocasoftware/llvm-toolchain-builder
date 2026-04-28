@@ -17,6 +17,13 @@ on:
         description: 'Also build p2996 variant'
         type: boolean
         default: true
+      runner_size:
+        description: 'Runner core count (matches the suffix in the runner label)'
+        type: choice
+        options:
+          - 64core
+          - 16core
+        default: 64core
   push:
     branches: [main]
     paths:
@@ -39,7 +46,7 @@ jobs:
   # ===========================================================================
   stage1-main:
     name: Stage 1 (main, MSVC)
-    runs-on: windows-2022-64core
+    runs-on: windows-2022-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 720
     env:
       VARIANT: main
@@ -117,7 +124,7 @@ jobs:
   stage2-main:
     name: Stage 2 (main, libc++)
     needs: stage1-main
-    runs-on: windows-2022-64core
+    runs-on: windows-2022-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 720
     env:
       VARIANT: main
@@ -196,7 +203,7 @@ jobs:
   # ===========================================================================
   stage1-p2996:
     name: Stage 1 (p2996, MSVC)
-    runs-on: windows-2022-64core
+    runs-on: windows-2022-${{ github.event.inputs.runner_size || '64core' }}
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
     timeout-minutes: 720
     env:
@@ -276,7 +283,7 @@ jobs:
     name: Stage 2 (p2996, libc++)
     needs: stage1-p2996
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
-    runs-on: windows-2022-64core
+    runs-on: windows-2022-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 720
     env:
       VARIANT: p2996
@@ -351,7 +358,7 @@ jobs:
   verify-main:
     name: Verify (main)
     needs: stage2-main
-    runs-on: windows-2022-64core
+    runs-on: windows-2022-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -382,7 +389,7 @@ jobs:
     name: Verify (p2996)
     needs: stage2-p2996
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
-    runs-on: windows-2022-64core
+    runs-on: windows-2022-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 30
     steps:
       - name: Checkout

@@ -3,7 +3,7 @@ name: Build LLVM Toolchain (Windows ARM64)
 #   Stage 1: MSVC cl.exe (arm64 native) builds a minimal LLVM (cached, artifact: *-msvc)
 #   Stage 2: Stage 1 clang-cl rebuilds LLVM with libc++ (artifact: final)
 #
-# Runs on a native ARM64 runner (`windows-2022-arm-64core`) — there is no
+# Runs on a native ARM64 runner (`windows-2022-arm-{16core,64core}`) — there is no
 # cross-build from x64; every binary is produced with arm64 instructions.
 #
 # Both main and p2996 variants go through Stage 1 → Stage 2 → Verify.
@@ -20,6 +20,13 @@ on:
         description: 'Also build p2996 variant'
         type: boolean
         default: true
+      runner_size:
+        description: 'Runner core count (matches the suffix in the runner label)'
+        type: choice
+        options:
+          - 64core
+          - 16core
+        default: 64core
   push:
     branches: [main]
     paths:
@@ -45,7 +52,7 @@ jobs:
   # ===========================================================================
   stage1-main:
     name: Stage 1 (main, MSVC arm64)
-    runs-on: windows-2022-arm-64core
+    runs-on: windows-2022-arm-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 720
     env:
       VARIANT: main
@@ -135,7 +142,7 @@ jobs:
   stage2-main:
     name: Stage 2 (main, libc++ arm64)
     needs: stage1-main
-    runs-on: windows-2022-arm-64core
+    runs-on: windows-2022-arm-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 720
     env:
       VARIANT: main
@@ -223,7 +230,7 @@ jobs:
   # ===========================================================================
   stage1-p2996:
     name: Stage 1 (p2996, MSVC arm64)
-    runs-on: windows-2022-arm-64core
+    runs-on: windows-2022-arm-${{ github.event.inputs.runner_size || '64core' }}
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
     timeout-minutes: 720
     env:
@@ -315,7 +322,7 @@ jobs:
     name: Stage 2 (p2996, libc++ arm64)
     needs: stage1-p2996
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
-    runs-on: windows-2022-arm-64core
+    runs-on: windows-2022-arm-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 720
     env:
       VARIANT: p2996
@@ -399,7 +406,7 @@ jobs:
   verify-main:
     name: Verify (main arm64)
     needs: stage2-main
-    runs-on: windows-2022-arm-64core
+    runs-on: windows-2022-arm-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -433,7 +440,7 @@ jobs:
     name: Verify (p2996 arm64)
     needs: stage2-p2996
     if: ${{ github.event.inputs.build_p2996 != 'false' }}
-    runs-on: windows-2022-arm-64core
+    runs-on: windows-2022-arm-${{ github.event.inputs.runner_size || '64core' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
