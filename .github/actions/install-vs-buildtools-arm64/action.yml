@@ -48,9 +48,16 @@ runs:
         & curl.exe --fail --location --retry 5 --retry-delay 2 --retry-all-errors --silent --show-error --output $installer $url
         if ($LASTEXITCODE -ne 0) { throw "curl failed (exit $LASTEXITCODE) downloading $url" }
 
+        # Workload.VCTools alone installs only the x64/x86 toolset — the
+        # ARM64/ARM64EC compiler (Component.VC.Tools.ARM64) is NOT bundled
+        # by --includeRecommended on any host and must be requested explicitly.
+        # That component ID is stable across VS 2022 releases; the exit-87
+        # problem in the previous attempt came from a Windows-SDK component id
+        # (Windows11SDK.22621), which we now let --includeRecommended pick.
         $iargs = @(
             '--quiet', '--wait', '--norestart', '--nocache',
             '--add', 'Microsoft.VisualStudio.Workload.VCTools',
+            '--add', 'Microsoft.VisualStudio.Component.VC.Tools.ARM64',
             '--includeRecommended'
         )
 
